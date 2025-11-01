@@ -158,9 +158,6 @@ def _build_chart_datasets(glucose_entries, freq_points, calculator):
     return datasets
 
 
-app = Flask(__name__)
-
-
 HTML_TEMPLATE = """
 <!doctype html>
 <html lang="en">
@@ -325,82 +322,90 @@ HTML_TEMPLATE = """
 """
 
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    errors = []
-    result = None
-    chart_curves = None
-    glucose_raw = request.form.get("glucose", "")
-    frequency_raw = request.form.get("frequency", "")
+def create_app() -> Flask:
+    app = Flask(__name__)
 
-    if request.method == "POST":
-        glucose = None
-        frequency = None
-        try:
-            glucose = float(glucose_raw)
-        except ValueError:
-            errors.append("Glucose concentration must be a number.")
-        else:
-            if glucose < 0:
-                errors.append("Glucose concentration must be zero or positive.")
+    @app.route("/", methods=["GET", "POST"])
+    def index():
+        errors = []
+        result = None
+        chart_curves = None
+        glucose_raw = request.form.get("glucose", "")
+        frequency_raw = request.form.get("frequency", "")
 
-        try:
-            frequency = float(frequency_raw)
-        except ValueError:
-            errors.append("Frequency must be a number.")
-        else:
-            if frequency < 0:
-                errors.append("Frequency must be zero or positive.")
+        if request.method == "POST":
+            glucose = None
+            frequency = None
+            try:
+                glucose = float(glucose_raw)
+            except ValueError:
+                errors.append("Glucose concentration must be a number.")
+            else:
+                if glucose < 0:
+                    errors.append("Glucose concentration must be zero or positive.")
 
-        if not errors and glucose is not None and frequency is not None:
-            bp_eps_r, bp_sigma = dielectric_BP(glucose, frequency)
-            dw_eps_r, dw_sigma = dielectric_DW(glucose, frequency)
-            result = {
-                "bp_eps_r": f"{bp_eps_r:.6g}",
-                "bp_sigma": f"{bp_sigma:.6g}",
-                "dw_eps_r": f"{dw_eps_r:.6g}",
-                "dw_sigma": f"{dw_sigma:.6g}",
-                "bp_eps_r_val": bp_eps_r,
-                "bp_sigma_val": bp_sigma,
-                "dw_eps_r_val": dw_eps_r,
-                "dw_sigma_val": dw_sigma,
-            }
-            reference_glucose = [72.0, 216.0, 330.0, 600.0]
-            freq_points = [round(0.5 + 0.5 * i, 2) for i in range(20)]
-            entries = [{"glucose": g, "label": f"{g:.0f} mg/dL"} for g in reference_glucose]
-            matched_entry = None
-            for entry in entries:
-                if abs(entry["glucose"] - glucose) < 1e-6:
-                    entry["is_user"] = True
-                    entry["label"] = f"{entry['glucose']:.0f} mg/dL (input)"
-                    matched_entry = entry
-                    break
-            if matched_entry is None:
-                entries.append(
-                    {
-                        "glucose": glucose,
-                        "label": f"Input {glucose:.2f} mg/dL",
-                        "is_user": True,
-                    }
-                )
-            chart_curves = {
-                "frequency": freq_points,
-                "bp": {
-                    "datasets": _build_chart_datasets(entries, freq_points, dielectric_BP),
-                },
-                "dw": {
-                    "datasets": _build_chart_datasets(entries, freq_points, dielectric_DW),
-                },
-            }
+            try:
+                frequency = float(frequency_raw)
+            except ValueError:
+                errors.append("Frequency must be a number.")
+            else:
+                if frequency < 0:
+                    errors.append("Frequency must be zero or positive.")
 
-    context = {
-        "errors": errors,
-        "result": result,
-        "glucose_value": glucose_raw,
-        "frequency_value": frequency_raw,
-        "chart_curves": chart_curves,
-    }
-    return render_template_string(HTML_TEMPLATE, **context)
+            if not errors and glucose is not None and frequency is not None:
+                bp_eps_r, bp_sigma = dielectric_BP(glucose, frequency)
+                dw_eps_r, dw_sigma = dielectric_DW(glucose, frequency)
+                result = {
+                    "bp_eps_r": f"{bp_eps_r:.6g}",
+                    "bp_sigma": f"{bp_sigma:.6g}",
+                    "dw_eps_r": f"{dw_eps_r:.6g}",
+                    "dw_sigma": f"{dw_sigma:.6g}",
+                    "bp_eps_r_val": bp_eps_r,
+                    "bp_sigma_val": bp_sigma,
+                    "dw_eps_r_val": dw_eps_r,
+                    "dw_sigma_val": dw_sigma,
+                }
+                reference_glucose = [72.0, 216.0, 330.0, 600.0]
+                freq_points = [round(0.5 + 0.5 * i, 2) for i in range(20)]
+                entries = [{"glucose": g, "label": f"{g:.0f} mg/dL"} for g in reference_glucose]
+                matched_entry = None
+                for entry in entries:
+                    if abs(entry["glucose"] - glucose) < 1e-6:
+                        entry["is_user"] = True
+                        entry["label"] = f"{entry['glucose']:.0f} mg/dL (input)"
+                        matched_entry = entry
+                        break
+                if matched_entry is None:
+                    entries.append(
+                        {
+                            "glucose": glucose,
+                            "label": f"Input {glucose:.2f} mg/dL",
+                            "is_user": True,
+                        }
+                    )
+                chart_curves = {
+                    "frequency": freq_points,
+                    "bp": {
+                        "datasets": _build_chart_datasets(entries, freq_points, dielectric_BP),
+                    },
+                    "dw": {
+                        "datasets": _build_chart_datasets(entries, freq_points, dielectric_DW),
+                    },
+                }
+
+        context = {
+            "errors": errors,
+            "result": result,
+            "glucose_value": glucose_raw,
+            "frequency_value": frequency_raw,
+            "chart_curves": chart_curves,
+        }
+        return render_template_string(HTML_TEMPLATE, **context)
+
+    return app
+
+
+app = create_app()
 
 
 def main():
