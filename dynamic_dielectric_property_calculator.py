@@ -62,80 +62,101 @@ _DW_CD = {
 }
 
 
-def _interp_coeff(coeff_map: dict, f_ghz: float):
-    if f_ghz in coeff_map:
-        return coeff_map[f_ghz]
-    keys = sorted(coeff_map.keys())
-    idx = bisect_left(keys, f_ghz)
-    if idx == 0:
-        return coeff_map[keys[0]]
-    if idx == len(keys):
-        return coeff_map[keys[-1]]
-    f0, f1 = keys[idx - 1], keys[idx]
-    a0, b0 = coeff_map[f0]
-    a1, b1 = coeff_map[f1]
-    t = (f_ghz - f0) / (f1 - f0)
-    return a0 + t * (a1 - a0), b0 + t * (b1 - b0)
+_BP_TABLE_ER = {
+    0.5: {72: 72.75, 219: 72.73, 330: 72.71, 600: 72.66},
+    2.5: {72: 69.74, 219: 69.70, 330: 69.67, 600: 69.59},
+    5.0: {72: 64.62, 219: 64.56, 330: 64.51, 600: 64.39},
+    10.0: {72: 53.24, 219: 53.14, 330: 53.07, 600: 52.88},
+}
+
+_BP_TABLE_SIGMA = {
+    0.5: {72: 2.065, 219: 2.046, 330: 2.030, 600: 1.995},
+    2.5: {72: 3.498, 219: 3.482, 330: 3.470, 600: 3.441},
+    5.0: {72: 7.078, 219: 7.069, 330: 7.062, 600: 7.046},
+    10.0: {72: 16.91, 219: 16.91, 330: 16.91, 600: 16.90},
+}
+
+_DW_TABLE_ER = {
+    0.5: {72: 80.94, 219: 80.90, 330: 80.87, 600: 80.79},
+    2.5: {72: 79.64, 219: 79.58, 330: 79.54, 600: 79.43},
+    5.0: {72: 75.86, 219: 75.76, 330: 75.69, 600: 75.51},
+    10.0: {72: 64.07, 219: 63.90, 330: 63.76, 600: 63.44},
+}
+
+_DW_TABLE_SIGMA = {
+    0.5: {72: 5.55e-2, 219: 5.57e-2, 330: 5.58e-2, 600: 5.62e-2},
+    2.5: {72: 13.62e-1, 219: 13.67e-1, 330: 13.70e-1, 600: 13.78e-1},
+    5.0: {72: 51.59e-1, 219: 51.71e-1, 330: 51.80e-1, 600: 52.01e-1},
+    10.0: {72: 17.00, 219: 17.00, 330: 16.99, 600: 16.97},
+}
+
+
+def _build_correction_table(table_er, table_sigma, model_fn):
+    corrections = {}
+    for freq, er_targets in table_er.items():
+        sigma_targets = table_sigma[freq]
+        er_corr = {}
+        sigma_corr = {}
+        for glucose, er_target in er_targets.items():
+            chi = glucose / 18.0
+            er_model, sigma_model = model_fn(glucose, freq)
+            er_corr[chi] = er_target - er_model
+            sigma_corr[chi] = sigma_targets[glucose] - sigma_model
+        corrections[freq] = {"er": er_corr, "sigma": sigma_corr}
+    return corrections
+
+
+def _lagrange_interpolate(x, points: dict):
+    items = list(points.items())
+    total = 0.0
+    for i, (xi, yi) in enumerate(items):
+        term = yi
+        for j, (xj, _) in enumerate(items):
+            if i == j:
+                continue
+            term *= (x - xj) / (xi - xj)
+        total += term
+    return total
+
+
+def _evaluate_correction(freq, chi, correction_table, key):
+    freqs = sorted(correction_table.keys())
+    if freq <= freqs[0]:
+        return _lagrange_interpolate(chi, correction_table[freqs[0]][key])
+    if freq >= freqs[-1]:
+        return _lagrange_interpolate(chi, correction_table[freqs[-1]][key])
+    if freq in correction_table:
+        return _lagrange_interpolate(chi, correction_table[freq][key])
+    idx = bisect_left(freqs, freq)
+    f0, f1 = freqs[idx - 1], freqs[idx]
+    t = (freq - f0) / (f1 - f0)
+    c0 = _lagrange_interpolate(chi, correction_table[f0][key])
+    c1 = _lagrange_interpolate(chi, correction_table[f1][key])
+    return c0 + t * (c1 - c0)
+
+
+_BP_CORR = _build_correction_table(_BP_TABLE_ER, _BP_TABLE_SIGMA, _bp_model)
+_DW_CORR = _build_correction_table(_DW_TABLE_ER, _DW_TABLE_SIGMA, _dw_model)
 
 
 def dielectric_BP(glucose_mgdl: float, freq_ghz: float):
     er_model, sig_model = _bp_model(glucose_mgdl, freq_ghz)
-    a, b = _interp_coeff(_BP_AB, freq_ghz)
-    c, d = _interp_coeff(_BP_CD, freq_ghz)
-    er = a * er_model + b
-    sigma = c * sig_model + d
+    chi = glucose_mgdl / 18.0
+    er_correction = _evaluate_correction(freq_ghz, chi, _BP_CORR, "er")
+    sigma_correction = _evaluate_correction(freq_ghz, chi, _BP_CORR, "sigma")
+    er = er_model + er_correction
+    sigma = sig_model + sigma_correction
     return float(er), float(sigma)
 
 
 def dielectric_DW(glucose_mgdl: float, freq_ghz: float):
     er_model, sig_model = _dw_model(glucose_mgdl, freq_ghz)
-    a, b = _interp_coeff(_DW_AB, freq_ghz)
-    c, d = _interp_coeff(_DW_CD, freq_ghz)
-    er = a * er_model + b
-    sigma = c * sig_model + d
+    chi = glucose_mgdl / 18.0
+    er_correction = _evaluate_correction(freq_ghz, chi, _DW_CORR, "er")
+    sigma_correction = _evaluate_correction(freq_ghz, chi, _DW_CORR, "sigma")
+    er = er_model + er_correction
+    sigma = sig_model + sigma_correction
     return float(er), float(sigma)
-
-
-def prefit_dwater_coeffs():
-    tbl_er = {
-        0.5: {72: 80.94, 219: 80.90, 330: 80.87, 600: 80.79},
-        2.5: {72: 79.64, 219: 79.58, 330: 79.54, 600: 79.43},
-        5.0: {72: 75.86, 219: 75.76, 330: 75.69, 600: 75.51},
-        10.0: {72: 64.07, 219: 63.90, 330: 63.76, 600: 63.44},
-    }
-    tbl_s = {
-        0.5: {72: 5.55e-2, 219: 5.57e-2, 330: 5.58e-2, 600: 5.62e-2},
-        2.5: {72: 13.62e-1, 219: 13.67e-1, 330: 13.70e-1, 600: 13.78e-1},
-        5.0: {72: 51.59e-1, 219: 51.71e-1, 330: 51.80e-1, 600: 52.01e-1},
-        10.0: {72: 17.00, 219: 17.00, 330: 16.99, 600: 16.97},
-    }
-    def _fit_line(xs, ys):
-        n = len(xs)
-        mean_x = sum(xs) / n
-        mean_y = sum(ys) / n
-        numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-        denominator = sum((x - mean_x) ** 2 for x in xs)
-        slope = numerator / denominator if denominator != 0 else 0.0
-        intercept = mean_y - slope * mean_x
-        return slope, intercept
-
-    AB = {}
-    CD = {}
-    for freq in ANCHOR_F:
-        er_samples = []
-        er_targets = []
-        sig_samples = []
-        sig_targets = []
-        for glucose in (72, 219, 330, 600):
-            er_m, sig_m = _dw_model(glucose, freq)
-            er_samples.append(er_m)
-            er_targets.append(tbl_er[freq][glucose])
-            sig_samples.append(sig_m)
-            sig_targets.append(tbl_s[freq][glucose])
-        AB[freq] = _fit_line(er_samples, er_targets)
-        CD[freq] = _fit_line(sig_samples, sig_targets)
-    return AB, CD
-
 
 def _build_chart_datasets(glucose_entries, freq_points, calculator):
     datasets = []
