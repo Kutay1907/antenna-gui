@@ -5,6 +5,7 @@ from flask import Flask, render_template_string, request
 
 
 EPS0 = 8.854187817e-12  # Vacuum permittivity (F/m)
+OMEGA_FACTOR = 2 * math.pi * 1e9  # Multiply GHz to get angular frequency
 ANCHOR_F = (0.5, 2.5, 5.0, 10.0)  # GHz calibration anchors
 
 
@@ -33,33 +34,11 @@ def _dw_model(glu_mgdl: float, f_ghz: float, tau_scale: float = 1e-12):
     return er, sigma
 
 
-_BP_AB = {
-    0.5: (-0.005088461538990333, 73.11012377474047),
-    2.5: (-0.010341673171182033, 70.45308166601832),
-    5.0: (-0.029920370091606023, 66.54609393255069),
-    10.0: (0.04139278837204885, 51.01564247651889),
-}
-
-_BP_CD = {
-    0.5: (-0.017562290382174762, 2.0734308671230948),
-    2.5: (-0.011413282710042128, 3.5196930980494745),
-    5.0: (-0.004631947865658022, 7.105555211777496),
-    10.0: (-0.0017949573949271238, 16.945335478485262),
-}
-
-_DW_AB = {
-    0.5: (0.999, 0.100),
-    2.5: (0.999, 0.800),
-    5.0: (0.999, -0.100),
-    10.0: (1.001, -0.050),
-}
-
-_DW_CD = {
-    0.5: (1.0005, 0.00001),
-    2.5: (0.9990, 0.0008),
-    5.0: (0.9985, 0.0011),
-    10.0: (0.9950, 0.0500),
-}
+def compute_loss_tangent(epsilon_r: float, sigma: float, frequency_ghz: float) -> float:
+    if frequency_ghz <= 0 or epsilon_r == 0:
+        return float("nan")
+    omega = OMEGA_FACTOR * frequency_ghz
+    return sigma / (omega * EPS0 * epsilon_r)
 
 
 _BP_TABLE_ER = {
@@ -232,8 +211,8 @@ HTML_TEMPLATE = """
     {% if result %}
       <div class="result">
         <strong>Computed at {{ frequency_value }} GHz</strong>
-        <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ result.bp_eps_r }} | σ = {{ result.bp_sigma }} S/m</div>
-        <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ result.dw_eps_r }} | σ = {{ result.dw_sigma }} S/m</div>
+        <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ result.bp_eps_r }} | σ = {{ result.bp_sigma }} S/m | tan&#948; = {{ result.bp_loss }}</div>
+        <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ result.dw_eps_r }} | σ = {{ result.dw_sigma }} S/m | tan&#948; = {{ result.dw_loss }}</div>
       </div>
       <div class="chart-section">
         <h2>Blood Plasma (Cole–Cole) Trends</h2>
@@ -376,15 +355,21 @@ def create_app() -> Flask:
             if not errors and glucose is not None and frequency is not None:
                 bp_eps_r, bp_sigma = dielectric_BP(glucose, frequency)
                 dw_eps_r, dw_sigma = dielectric_DW(glucose, frequency)
+                bp_loss = compute_loss_tangent(bp_eps_r, bp_sigma, frequency)
+                dw_loss = compute_loss_tangent(dw_eps_r, dw_sigma, frequency)
                 result = {
                     "bp_eps_r": f"{bp_eps_r:.6g}",
                     "bp_sigma": f"{bp_sigma:.6g}",
+                    "bp_loss": "N/A" if math.isnan(bp_loss) else f"{bp_loss:.6g}",
                     "dw_eps_r": f"{dw_eps_r:.6g}",
                     "dw_sigma": f"{dw_sigma:.6g}",
+                    "dw_loss": "N/A" if math.isnan(dw_loss) else f"{dw_loss:.6g}",
                     "bp_eps_r_val": bp_eps_r,
                     "bp_sigma_val": bp_sigma,
+                    "bp_loss_val": bp_loss,
                     "dw_eps_r_val": dw_eps_r,
                     "dw_sigma_val": dw_sigma,
+                    "dw_loss_val": dw_loss,
                 }
                 reference_glucose = [72.0, 216.0, 330.0, 600.0]
                 freq_points = [round(0.5 + 0.5 * i, 2) for i in range(20)]
