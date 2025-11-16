@@ -5,7 +5,55 @@ from flask import Flask, render_template_string, request
 
 
 EPS0 = 8.854187817e-12  # Vacuum permittivity (F/m)
-OMEGA_FACTOR = 2 * math.pi * 1e9  # Multiply GHz to get angular frequency
+OMEGA_FACTOR = 2 * math.pi  # Base factor; multiply by Hz
+UNIT_FACTORS = {
+    "Hz": 1.0,
+    "kHz": 1e3,
+    "MHz": 1e6,
+    "GHz": 1e9,
+}
+TISSUE_MODELS = {
+    "fat": {
+        "tissue": "Fat",
+        "eps_inf": 3.1,
+        "d_eps": [29.0, 7.5, 0.0, 0.0],
+        "tau": [7.96e-12, 3.8e-10, 0.0, 0.0],
+        "alpha": [0.1, 0.05, 0.0, 0.0],
+        "sigma_i": 0.02,
+    },
+    "muscle": {
+        "tissue": "Muscle",
+        "eps_inf": 4.0,
+        "d_eps": [45.0, 32.0, 4.0, 0.0],
+        "tau": [7.23e-12, 6.5e-11, 3.6e-9, 0.0],
+        "alpha": [0.1, 0.05, 0.02, 0.0],
+        "sigma_i": 0.7,
+    },
+    "blood": {
+        "tissue": "Blood",
+        "eps_inf": 3.2,
+        "d_eps": [60.0, 30.0, 4.0, 0.0],
+        "tau": [8.1e-12, 5.5e-11, 3.8e-9, 0.0],
+        "alpha": [0.1, 0.05, 0.02, 0.0],
+        "sigma_i": 1.1,
+    },
+    "cortical_bone": {
+        "tissue": "Cortical Bone",
+        "eps_inf": 2.5,
+        "d_eps": [13.0, 4.0, 0.0, 0.0],
+        "tau": [6.8e-12, 4.7e-10, 0.0, 0.0],
+        "alpha": [0.1, 0.05, 0.0, 0.0],
+        "sigma_i": 0.02,
+    },
+    "skin": {
+        "tissue": "Skin",
+        "eps_inf": 4.5,
+        "d_eps": [38.0, 28.0, 3.0, 0.0],
+        "tau": [7.4e-12, 6.0e-11, 3.4e-9, 0.0],
+        "alpha": [0.1, 0.05, 0.02, 0.0],
+        "sigma_i": 0.4,
+    },
+}
 ANCHOR_F = (0.5, 2.5, 5.0, 10.0)  # GHz calibration anchors
 
 
@@ -37,8 +85,40 @@ def _dw_model(glu_mgdl: float, f_ghz: float, tau_scale: float = 1e-12):
 def compute_loss_tangent(epsilon_r: float, sigma: float, frequency_ghz: float) -> float:
     if frequency_ghz <= 0 or epsilon_r == 0:
         return float("nan")
-    omega = OMEGA_FACTOR * frequency_ghz
+    omega = 2 * math.pi * frequency_ghz * 1e9
     return sigma / (omega * EPS0 * epsilon_r)
+
+
+def compute_properties(frequency_hz: float, tissue_parameters: dict):
+    if frequency_hz <= 0:
+        raise ValueError("Frequency must be > 0.")
+
+    omega = OMEGA_FACTOR * frequency_hz
+    eps_complex = complex(tissue_parameters["eps_inf"], 0.0)
+
+    for delta_eps, tau, alpha in zip(
+        tissue_parameters["d_eps"],
+        tissue_parameters["tau"],
+        tissue_parameters["alpha"],
+    ):
+        if delta_eps == 0 or tau == 0:
+            continue
+        exponent = 1 - alpha
+        denom = 1 + (1j * omega * tau) ** exponent
+        eps_complex += delta_eps / denom
+
+    eps_complex += tissue_parameters["sigma_i"] / (1j * omega * EPS0)
+    eps_real = eps_complex.real
+    eps_imag = -eps_complex.imag
+    sigma = omega * EPS0 * eps_imag
+    tan_delta = eps_imag / eps_real if eps_real != 0 else float("nan")
+
+    return {
+        "epsilon_real": eps_real,
+        "epsilon_imag": eps_imag,
+        "conductivity": sigma,
+        "loss_tangent": tan_delta,
+    }
 
 
 _BP_TABLE_ER = {
@@ -170,6 +250,10 @@ HTML_TEMPLATE = """
     h1 { font-size: 2rem; margin-bottom: 1.2rem; text-align: center; color: #1a2a34; }
     label { font-weight: 600; display: block; margin-bottom: 6px; color: #2b3a42; }
     input { width: 100%; padding: 10px 12px; margin-bottom: 16px; border: 1px solid #ccd5db; border-radius: 6px; font-size: 1rem; background-color: #fdfdfd; }
+    .freq-input { display: flex; gap: 10px; align-items: center; }
+    .freq-input input { flex: 1; margin-bottom: 0; }
+    .freq-input select { padding: 10px 12px; border-radius: 6px; border: 1px solid #ccd5db; background-color: #fff; font-size: 1rem; }
+    .freq-input-wrapper { margin-bottom: 16px; }
     button { background-color: #1e88e5; border: none; color: white; padding: 12px 18px; border-radius: 6px; font-size: 1rem; cursor: pointer; width: 100%; transition: background-color 0.2s ease; }
     button:hover { background-color: #1669bb; }
     .error { background-color: #fdecea; color: #b22b27; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; border-left: 4px solid #d93025; }
@@ -184,6 +268,12 @@ HTML_TEMPLATE = """
     .chart-card { background: #ffffff; border-radius: 12px; padding: 18px 18px 24px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); border: 1px solid rgba(14,31,53,0.06); }
     .chart-card h3 { font-size: 1.05rem; margin-bottom: 12px; text-align: center; color: #2b3a42; }
     canvas { width: 100% !important; height: 280px !important; }
+    .tissue-section { margin-top: 32px; }
+    .tissue-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+    .tissue-card { background: #ffffff; border-radius: 10px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 5px 16px rgba(0,0,0,0.05); }
+    .tissue-card h3 { margin: 0 0 8px 0; font-size: 1rem; color: #1a2a34; }
+    .tissue-card .freq { font-size: 0.9rem; color: #5f6c74; margin-bottom: 8px; }
+    .tissue-card .metric { font-size: 0.9rem; margin-bottom: 4px; }
     .footer { margin-top: 28px; font-size: 0.85rem; color: #5f6c74; text-align: center; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -202,15 +292,24 @@ HTML_TEMPLATE = """
       <label for="glucose">Glucose concentration (mg/dL)</label>
       <input type="number" step="any" id="glucose" name="glucose" value="{{ glucose_value }}" required>
 
-      <label for="frequency">Frequency (GHz)</label>
-      <input type="number" step="any" min="0" id="frequency" name="frequency" value="{{ frequency_value }}" required>
+      <label for="frequency">Frequency</label>
+      <div class="freq-input-wrapper">
+        <div class="freq-input">
+          <input type="number" step="any" min="0" id="frequency" name="frequency" value="{{ frequency_value }}" required>
+          <select name="frequency_unit">
+            {% for unit in frequency_units %}
+              <option value="{{ unit }}" {% if unit == frequency_unit %}selected{% endif %}>{{ unit }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
 
       <button type="submit">Compute</button>
     </form>
 
     {% if result %}
       <div class="result">
-        <strong>Computed at {{ frequency_value }} GHz</strong>
+        <strong>Computed at {{ frequency_display }}</strong>
         <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ result.bp_eps_r }} | σ = {{ result.bp_sigma }} S/m | tan&#948; = {{ result.bp_loss }}</div>
         <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ result.dw_eps_r }} | σ = {{ result.dw_sigma }} S/m | tan&#948; = {{ result.dw_loss }}</div>
       </div>
@@ -238,6 +337,24 @@ HTML_TEMPLATE = """
             <h3>Conductivity vs Frequency</h3>
             <canvas id="dwCondChart"></canvas>
           </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if tissue_cards %}
+      <div class="tissue-section">
+        <h2>Cole–Cole Tissue Properties</h2>
+        <div class="tissue-grid">
+          {% for tissue in tissue_cards %}
+            <div class="tissue-card">
+              <h3>Tissue: {{ tissue.tissue }}</h3>
+              <div class="freq">Frequency: {{ tissue.frequency }}</div>
+              <div class="metric">ε′ = {{ tissue.epsilon_real }}</div>
+              <div class="metric">ε″ = {{ tissue.epsilon_imag }}</div>
+              <div class="metric">σ = {{ tissue.conductivity }} S/m</div>
+              <div class="metric">tan&#948; = {{ tissue.loss_tangent }}</div>
+            </div>
+          {% endfor %}
         </div>
       </div>
     {% endif %}
@@ -330,8 +447,13 @@ def create_app() -> Flask:
         errors = []
         result = None
         chart_curves = None
+        tissue_cards = None
         glucose_raw = request.form.get("glucose", "")
         frequency_raw = request.form.get("frequency", "")
+        frequency_unit = request.form.get("frequency_unit", "GHz")
+        if frequency_unit not in UNIT_FACTORS:
+            frequency_unit = "GHz"
+        frequency_display = "—"
 
         if request.method == "POST":
             glucose = None
@@ -349,14 +471,19 @@ def create_app() -> Flask:
             except ValueError:
                 errors.append("Frequency must be a number.")
             else:
-                if frequency < 0:
-                    errors.append("Frequency must be zero or positive.")
+                if frequency <= 0:
+                    errors.append("Frequency must be > 0.")
 
             if not errors and glucose is not None and frequency is not None:
-                bp_eps_r, bp_sigma = dielectric_BP(glucose, frequency)
-                dw_eps_r, dw_sigma = dielectric_DW(glucose, frequency)
-                bp_loss = compute_loss_tangent(bp_eps_r, bp_sigma, frequency)
-                dw_loss = compute_loss_tangent(dw_eps_r, dw_sigma, frequency)
+                unit_factor = UNIT_FACTORS.get(frequency_unit, 1.0)
+                frequency_hz = frequency * unit_factor
+                frequency_ghz = frequency_hz / 1e9
+                frequency_display = f"{frequency:.6g} {frequency_unit}"
+
+                bp_eps_r, bp_sigma = dielectric_BP(glucose, frequency_ghz)
+                dw_eps_r, dw_sigma = dielectric_DW(glucose, frequency_ghz)
+                bp_loss = compute_loss_tangent(bp_eps_r, bp_sigma, frequency_ghz)
+                dw_loss = compute_loss_tangent(dw_eps_r, dw_sigma, frequency_ghz)
                 result = {
                     "bp_eps_r": f"{bp_eps_r:.6g}",
                     "bp_sigma": f"{bp_sigma:.6g}",
@@ -398,13 +525,38 @@ def create_app() -> Flask:
                         "datasets": _build_chart_datasets(entries, freq_points, dielectric_DW),
                     },
                 }
+                tissue_cards = []
+                for params in TISSUE_MODELS.values():
+                    properties = compute_properties(frequency_hz, params)
+                    tissue_cards.append(
+                        {
+                            "tissue": params["tissue"],
+                            "frequency": frequency_display,
+                            "epsilon_real": "N/A"
+                            if math.isnan(properties["epsilon_real"])
+                            else f"{properties['epsilon_real']:.6g}",
+                            "epsilon_imag": "N/A"
+                            if math.isnan(properties["epsilon_imag"])
+                            else f"{properties['epsilon_imag']:.6g}",
+                            "conductivity": "N/A"
+                            if math.isnan(properties["conductivity"])
+                            else f"{properties['conductivity']:.6g}",
+                            "loss_tangent": "N/A"
+                            if math.isnan(properties["loss_tangent"])
+                            else f"{properties['loss_tangent']:.6g}",
+                        }
+                    )
 
         context = {
             "errors": errors,
             "result": result,
             "glucose_value": glucose_raw,
             "frequency_value": frequency_raw,
+            "frequency_unit": frequency_unit,
+            "frequency_units": list(UNIT_FACTORS.keys()),
+            "frequency_display": frequency_display,
             "chart_curves": chart_curves,
+            "tissue_cards": tissue_cards,
         }
         return render_template_string(HTML_TEMPLATE, **context)
 
