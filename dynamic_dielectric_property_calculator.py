@@ -331,9 +331,9 @@ HTML_TEMPLATE = """
     h1 { font-size: 2rem; margin-bottom: 1.2rem; text-align: center; color: #1a2a34; }
     label { font-weight: 600; display: block; margin-bottom: 6px; color: #2b3a42; }
     input { width: 100%; padding: 10px 12px; margin-bottom: 16px; border: 1px solid #ccd5db; border-radius: 6px; font-size: 1rem; background-color: #fdfdfd; }
-    .freq-input { display: flex; gap: 10px; align-items: center; }
-    .freq-input input { flex: 1.2; margin-bottom: 0; font-size: 1.05rem; padding: 12px 14px; }
-    .freq-input select { padding: 12px 14px; border-radius: 6px; border: 1px solid #ccd5db; background-color: #fff; font-size: 1.05rem; }
+    .freq-input { display: flex; gap: 12px; align-items: center; }
+    .freq-input input { flex: 2; margin-bottom: 0; font-size: 1.2rem; padding: 14px 18px; }
+    .freq-input select { padding: 14px 16px; border-radius: 6px; border: 1px solid #ccd5db; background-color: #fff; font-size: 1.15rem; min-width: 120px; }
     .freq-input-wrapper { margin-bottom: 16px; }
     select { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid #ccd5db; background-color: #fff; font-size: 1rem; margin-bottom: 16px; }
     button { background-color: #1e88e5; border: none; color: white; padding: 12px 18px; border-radius: 6px; font-size: 1rem; cursor: pointer; width: 100%; transition: background-color 0.2s ease; }
