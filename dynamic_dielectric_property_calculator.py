@@ -121,11 +121,78 @@ def compute_properties(frequency_hz: float, tissue_parameters: dict):
     }
 
 
+def _build_tissue_corrections():
+    corrections = {}
+    for tissue_key, targets in TISSUE_CALIBRATION_TARGETS.items():
+        params = TISSUE_MODELS[tissue_key]
+        freq_map = {}
+        for freq_hz, target in targets.items():
+            props = compute_properties(freq_hz, params)
+            diff_eps = target["eps_r"] - props["epsilon_real"]
+            diff_sigma = target["sigma"] - props["conductivity"]
+            freq_map[freq_hz] = (diff_eps, diff_sigma)
+        corrections[tissue_key] = freq_map
+    return corrections
+
+
+def _interpolate_diff(freq_hz: float, freq_map: dict):
+    if not freq_map:
+        return 0.0, 0.0
+    freqs = sorted(freq_map.keys())
+    if freq_hz <= freqs[0]:
+        return freq_map[freqs[0]]
+    if freq_hz >= freqs[-1]:
+        return freq_map[freqs[-1]]
+    idx = bisect_left(freqs, freq_hz)
+    if freqs[idx] == freq_hz:
+        return freq_map[freqs[idx]]
+    f0, f1 = freqs[idx - 1], freqs[idx]
+    t = (freq_hz - f0) / (f1 - f0)
+    diff0 = freq_map[f0]
+    diff1 = freq_map[f1]
+    diff_eps = diff0[0] + t * (diff1[0] - diff0[0])
+    diff_sigma = diff0[1] + t * (diff1[1] - diff0[1])
+    return diff_eps, diff_sigma
+
+
+def _apply_tissue_correction(tissue_key: str, frequency_hz: float, properties: dict):
+    freq_map = TISSUE_CORRECTIONS.get(tissue_key)
+    if not freq_map:
+        return properties
+    diff_eps, diff_sigma = _interpolate_diff(frequency_hz, freq_map)
+    eps_real = properties["epsilon_real"] + diff_eps
+    sigma = properties["conductivity"] + diff_sigma
+    omega = OMEGA_FACTOR * frequency_hz
+    eps_imag = sigma / (omega * EPS0) if omega > 0 else float("nan")
+    tan_delta = sigma / (omega * EPS0 * eps_real) if eps_real != 0 and omega > 0 else float("nan")
+    return {
+        "epsilon_real": eps_real,
+        "epsilon_imag": eps_imag,
+        "conductivity": sigma,
+        "loss_tangent": tan_delta,
+    }
+
+
 _BP_TABLE_ER = {
     0.5: {72: 72.75, 219: 72.73, 330: 72.71, 600: 72.66},
     2.5: {72: 69.74, 219: 69.70, 330: 69.67, 600: 69.59},
     5.0: {72: 64.62, 219: 64.56, 330: 64.51, 600: 64.39},
     10.0: {72: 53.24, 219: 53.14, 330: 53.07, 600: 52.88},
+}
+
+TISSUE_CALIBRATION_TARGETS = {
+    "skin": {
+        1.575e9: {"eps_r": 39.28, "sigma": 1.10},
+        5.2e9: {"eps_r": 35.61, "sigma": 3.22},
+    },
+    "fat": {
+        1.575e9: {"eps_r": 5.37, "sigma": 0.07},
+        5.2e9: {"eps_r": 5.01, "sigma": 0.25},
+    },
+    "muscle": {
+        1.575e9: {"eps_r": 53.86, "sigma": 1.22},
+        5.2e9: {"eps_r": 49.28, "sigma": 4.27},
+    },
 }
 
 _BP_TABLE_SIGMA = {
@@ -196,6 +263,7 @@ def _evaluate_correction(freq, chi, correction_table, key):
 
 _BP_CORR = _build_correction_table(_BP_TABLE_ER, _BP_TABLE_SIGMA, _bp_model)
 _DW_CORR = _build_correction_table(_DW_TABLE_ER, _DW_TABLE_SIGMA, _dw_model)
+TISSUE_CORRECTIONS = _build_tissue_corrections()
 
 
 def dielectric_BP(glucose_mgdl: float, freq_ghz: float):
@@ -349,8 +417,7 @@ HTML_TEMPLATE = """
             <div class="tissue-card">
               <h3>Tissue: {{ tissue.tissue }}</h3>
               <div class="freq">Frequency: {{ tissue.frequency }}</div>
-              <div class="metric">ε′ = {{ tissue.epsilon_real }}</div>
-              <div class="metric">ε″ = {{ tissue.epsilon_imag }}</div>
+              <div class="metric">ε<sub>r</sub> = {{ tissue.epsilon_real }}</div>
               <div class="metric">σ = {{ tissue.conductivity }} S/m</div>
               <div class="metric">tan&#948; = {{ tissue.loss_tangent }}</div>
             </div>
@@ -526,8 +593,9 @@ def create_app() -> Flask:
                     },
                 }
                 tissue_cards = []
-                for params in TISSUE_MODELS.values():
+                for key, params in TISSUE_MODELS.items():
                     properties = compute_properties(frequency_hz, params)
+                    properties = _apply_tissue_correction(key, frequency_hz, properties)
                     tissue_cards.append(
                         {
                             "tissue": params["tissue"],
@@ -535,9 +603,6 @@ def create_app() -> Flask:
                             "epsilon_real": "N/A"
                             if math.isnan(properties["epsilon_real"])
                             else f"{properties['epsilon_real']:.6g}",
-                            "epsilon_imag": "N/A"
-                            if math.isnan(properties["epsilon_imag"])
-                            else f"{properties['epsilon_imag']:.6g}",
                             "conductivity": "N/A"
                             if math.isnan(properties["conductivity"])
                             else f"{properties['conductivity']:.6g}",
