@@ -5,7 +5,7 @@ from flask import Flask, render_template_string, request
 
 
 EPS0 = 8.854187817e-12  # Vacuum permittivity (F/m)
-OMEGA_FACTOR = 2 * math.pi  # Base factor; multiply by Hz
+OMEGA_FACTOR = 2 * math.pi  # Multiply by Hz to get angular frequency
 UNIT_FACTORS = {
     "Hz": 1.0,
     "kHz": 1e3,
@@ -54,6 +54,12 @@ TISSUE_MODELS = {
         "sigma_i": 0.4,
     },
 }
+TISSUE_OPTIONS = [(key, value["tissue"]) for key, value in TISSUE_MODELS.items()]
+MODE_OPTIONS = [
+    ("cole-cole", "Cole–Cole Mode"),
+    ("table", "Table-Fit Mode"),
+]
+MODE_LABELS = dict(MODE_OPTIONS)
 ANCHOR_F = (0.5, 2.5, 5.0, 10.0)  # GHz calibration anchors
 
 
@@ -89,90 +95,89 @@ def compute_loss_tangent(epsilon_r: float, sigma: float, frequency_ghz: float) -
     return sigma / (omega * EPS0 * epsilon_r)
 
 
-def compute_properties(frequency_hz: float, tissue_parameters: dict):
+def compute_properties(frequency_hz: float, tissue_key: str, mode: str):
     if frequency_hz <= 0:
-        raise ValueError("Frequency must be > 0.")
+        raise ValueError("Frequency must be positive.")
+
+    tissue_key = tissue_key.lower()
+    if tissue_key not in TISSUE_MODELS:
+        raise ValueError("Invalid tissue.")
+
+    mode = mode.lower()
+    if mode not in {"cole-cole", "table"}:
+        raise ValueError("Invalid mode.")
 
     omega = OMEGA_FACTOR * frequency_hz
-    eps_complex = complex(tissue_parameters["eps_inf"], 0.0)
 
-    for delta_eps, tau, alpha in zip(
-        tissue_parameters["d_eps"],
-        tissue_parameters["tau"],
-        tissue_parameters["alpha"],
-    ):
-        if delta_eps == 0 or tau == 0:
-            continue
-        exponent = 1 - alpha
-        denom = 1 + (1j * omega * tau) ** exponent
-        eps_complex += delta_eps / denom
-
-    eps_complex += tissue_parameters["sigma_i"] / (1j * omega * EPS0)
-    eps_real = eps_complex.real
-    eps_imag = -eps_complex.imag
-    sigma = omega * EPS0 * eps_imag
-    tan_delta = eps_imag / eps_real if eps_real != 0 else float("nan")
-
-    return {
-        "epsilon_real": eps_real,
-        "epsilon_imag": eps_imag,
-        "conductivity": sigma,
-        "loss_tangent": tan_delta,
-    }
-
-
-def _build_tissue_corrections():
-    corrections = {}
-    for tissue_key, targets in TISSUE_CALIBRATION_TARGETS.items():
+    if mode == "cole-cole":
         params = TISSUE_MODELS[tissue_key]
-        freq_map = {}
-        for freq_hz, target in targets.items():
-            props = compute_properties(freq_hz, params)
-            diff_eps = target["eps_r"] - props["epsilon_real"]
-            diff_sigma = target["sigma"] - props["conductivity"]
-            freq_map[freq_hz] = (diff_eps, diff_sigma)
-        corrections[tissue_key] = freq_map
-    return corrections
+        eps_complex = complex(params["eps_inf"], 0.0)
+        for delta_eps, tau, alpha in zip(params["d_eps"], params["tau"], params["alpha"]):
+            if delta_eps == 0 or tau == 0:
+                continue
+            exponent = 1 - alpha
+            denom = 1 + (1j * omega * tau) ** exponent
+            eps_complex += delta_eps / denom
+        eps_complex += params["sigma_i"] / (1j * omega * EPS0)
+        eps_real = max(eps_complex.real, 0.0)
+        eps_double_prime = abs(eps_complex.imag)
+        tan_delta = eps_double_prime / eps_real if eps_real > 0 else float("nan")
+        sigma = omega * EPS0 * eps_double_prime
+        epsilon_imag = eps_double_prime
+    else:
+        coeffs = TABLE_FIT_COEFFS.get(tissue_key)
+        if not coeffs:
+            raise ValueError("Dataset incomplete.")
+        freq_ghz = frequency_hz / 1e9
+        if freq_ghz <= 0:
+            raise ValueError("Frequency must be positive.")
+        log_freq = math.log10(freq_ghz)
+        eps_real = max(_evaluate_log_fit(coeffs.get("eps_r"), log_freq), 0.0)
+        tan_delta = abs(_evaluate_log_fit(coeffs.get("tan_delta"), log_freq))
+        eps_double_prime = abs(eps_real * tan_delta)
+        sigma = omega * EPS0 * eps_double_prime
+        epsilon_imag = eps_double_prime
 
-
-def _interpolate_diff(freq_hz: float, freq_map: dict):
-    if not freq_map:
-        return 0.0, 0.0
-    freqs = sorted(freq_map.keys())
-    if freq_hz <= freqs[0]:
-        return freq_map[freqs[0]]
-    if freq_hz >= freqs[-1]:
-        return freq_map[freqs[-1]]
-    idx = bisect_left(freqs, freq_hz)
-    if freqs[idx] == freq_hz:
-        return freq_map[freqs[idx]]
-    f0, f1 = freqs[idx - 1], freqs[idx]
-    t = (freq_hz - f0) / (f1 - f0)
-    diff0 = freq_map[f0]
-    diff1 = freq_map[f1]
-    diff_eps = diff0[0] + t * (diff1[0] - diff0[0])
-    diff_sigma = diff0[1] + t * (diff1[1] - diff0[1])
-    return diff_eps, diff_sigma
-
-
-def _apply_tissue_correction(tissue_key: str, frequency_hz: float, properties: dict):
-    freq_map = TISSUE_CORRECTIONS.get(tissue_key)
-    if not freq_map:
-        return properties
-    diff_eps, diff_sigma = _interpolate_diff(frequency_hz, freq_map)
-    eps_real = properties["epsilon_real"] + diff_eps
-    sigma = properties["conductivity"] + diff_sigma
-    omega = OMEGA_FACTOR * frequency_hz
-    eps_imag = sigma / (omega * EPS0) if omega > 0 else float("nan")
-    tan_delta = sigma / (omega * EPS0 * eps_real) if eps_real != 0 and omega > 0 else float("nan")
     return {
         "epsilon_real": eps_real,
-        "epsilon_imag": eps_imag,
+        "epsilon_imag": epsilon_imag,
         "conductivity": sigma,
         "loss_tangent": tan_delta,
+        "mode": mode,
+        "tissue": tissue_key,
     }
 
 
+def _build_log_coefficients():
+    coeffs = {}
+    for tissue, points in TABLE_REFERENCE_POINTS.items():
+        freq_values = sorted(points.items())
+        if len(freq_values) < 2:
+            continue
+        (f1, v1), (f2, v2) = freq_values[:2]
+        x1 = math.log10(f1)
+        x2 = math.log10(f2)
+        if x1 == x2:
+            continue
+        tissue_coeff = {}
+        for key in ("eps_r", "tan_delta"):
+            y1 = v1[key]
+            y2 = v2[key]
+            m = (y2 - y1) / (x2 - x1)
+            b = y1 - m * x1
+            tissue_coeff[key] = (m, b)
+        coeffs[tissue] = tissue_coeff
+    return coeffs
+
+
+def _evaluate_log_fit(coeff, log_freq):
+    if coeff is None:
+        return float("nan")
+    m, b = coeff
+    return m * log_freq + b
+
+
+# Legacy blood plasma/water calibration tables for glucose functionality
 _BP_TABLE_ER = {
     0.5: {72: 72.75, 219: 72.73, 330: 72.71, 600: 72.66},
     2.5: {72: 69.74, 219: 69.70, 330: 69.67, 600: 69.59},
@@ -180,18 +185,26 @@ _BP_TABLE_ER = {
     10.0: {72: 53.24, 219: 53.14, 330: 53.07, 600: 52.88},
 }
 
-TISSUE_CALIBRATION_TARGETS = {
+TABLE_REFERENCE_POINTS = {
     "skin": {
-        1.575e9: {"eps_r": 39.28, "sigma": 1.10},
-        5.2e9: {"eps_r": 35.61, "sigma": 3.22},
+        1.575: {"eps_r": 39.28, "tan_delta": 0.32},
+        5.2: {"eps_r": 35.61, "tan_delta": 0.31},
     },
     "fat": {
-        1.575e9: {"eps_r": 5.37, "sigma": 0.07},
-        5.2e9: {"eps_r": 5.01, "sigma": 0.25},
+        1.575: {"eps_r": 5.37, "tan_delta": 0.15},
+        5.2: {"eps_r": 5.01, "tan_delta": 0.18},
     },
     "muscle": {
-        1.575e9: {"eps_r": 53.86, "sigma": 1.22},
-        5.2e9: {"eps_r": 49.28, "sigma": 4.27},
+        1.575: {"eps_r": 53.86, "tan_delta": 0.26},
+        5.2: {"eps_r": 49.28, "tan_delta": 0.30},
+    },
+    "blood": {
+        1.575: {"eps_r": 83.99219414819385, "tan_delta": 0.3630358010357819},
+        5.2: {"eps_r": 64.08320320665837, "tan_delta": 0.4841530609714435},
+    },
+    "cortical_bone": {
+        1.575: {"eps_r": 15.493917158583832, "tan_delta": 0.1400851610851716},
+        5.2: {"eps_r": 14.33175714307555, "tan_delta": 0.2268649368276044},
     },
 }
 
@@ -263,7 +276,7 @@ def _evaluate_correction(freq, chi, correction_table, key):
 
 _BP_CORR = _build_correction_table(_BP_TABLE_ER, _BP_TABLE_SIGMA, _bp_model)
 _DW_CORR = _build_correction_table(_DW_TABLE_ER, _DW_TABLE_SIGMA, _dw_model)
-TISSUE_CORRECTIONS = _build_tissue_corrections()
+TABLE_FIT_COEFFS = _build_log_coefficients()
 
 
 def dielectric_BP(glucose_mgdl: float, freq_ghz: float):
@@ -319,9 +332,10 @@ HTML_TEMPLATE = """
     label { font-weight: 600; display: block; margin-bottom: 6px; color: #2b3a42; }
     input { width: 100%; padding: 10px 12px; margin-bottom: 16px; border: 1px solid #ccd5db; border-radius: 6px; font-size: 1rem; background-color: #fdfdfd; }
     .freq-input { display: flex; gap: 10px; align-items: center; }
-    .freq-input input { flex: 1; margin-bottom: 0; }
-    .freq-input select { padding: 10px 12px; border-radius: 6px; border: 1px solid #ccd5db; background-color: #fff; font-size: 1rem; }
+    .freq-input input { flex: 1.2; margin-bottom: 0; font-size: 1.05rem; padding: 12px 14px; }
+    .freq-input select { padding: 12px 14px; border-radius: 6px; border: 1px solid #ccd5db; background-color: #fff; font-size: 1.05rem; }
     .freq-input-wrapper { margin-bottom: 16px; }
+    select { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid #ccd5db; background-color: #fff; font-size: 1rem; margin-bottom: 16px; }
     button { background-color: #1e88e5; border: none; color: white; padding: 12px 18px; border-radius: 6px; font-size: 1rem; cursor: pointer; width: 100%; transition: background-color 0.2s ease; }
     button:hover { background-color: #1669bb; }
     .error { background-color: #fdecea; color: #b22b27; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; border-left: 4px solid #d93025; }
@@ -336,12 +350,6 @@ HTML_TEMPLATE = """
     .chart-card { background: #ffffff; border-radius: 12px; padding: 18px 18px 24px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); border: 1px solid rgba(14,31,53,0.06); }
     .chart-card h3 { font-size: 1.05rem; margin-bottom: 12px; text-align: center; color: #2b3a42; }
     canvas { width: 100% !important; height: 280px !important; }
-    .tissue-section { margin-top: 32px; }
-    .tissue-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-    .tissue-card { background: #ffffff; border-radius: 10px; padding: 16px; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 5px 16px rgba(0,0,0,0.05); }
-    .tissue-card h3 { margin: 0 0 8px 0; font-size: 1rem; color: #1a2a34; }
-    .tissue-card .freq { font-size: 0.9rem; color: #5f6c74; margin-bottom: 8px; }
-    .tissue-card .metric { font-size: 0.9rem; margin-bottom: 4px; }
     .footer { margin-top: 28px; font-size: 0.85rem; color: #5f6c74; text-align: center; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -372,14 +380,38 @@ HTML_TEMPLATE = """
         </div>
       </div>
 
+      <label for="tissue">Tissue</label>
+      <select id="tissue" name="tissue">
+        {% for key, label in tissue_options %}
+          <option value="{{ key }}" {% if key == selected_tissue %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="mode">Mode</label>
+      <select id="mode" name="mode">
+        {% for key, label in mode_options %}
+          <option value="{{ key }}" {% if key == selected_mode %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+
       <button type="submit">Compute</button>
     </form>
 
-    {% if result %}
+    {% if tissue_result %}
+      <div class="result">
+        <strong>{{ tissue_result.title }}</strong>
+        <div>ε<sub>r</sub> = {{ tissue_result.epsilon_real }}</div>
+        <div>ε″ = {{ tissue_result.epsilon_imag }}</div>
+        <div>tan&#948; = {{ tissue_result.loss_tangent }}</div>
+        <div>σ = {{ tissue_result.conductivity }} S/m</div>
+      </div>
+    {% endif %}
+
+    {% if glucose_result %}
       <div class="result">
         <strong>Computed at {{ frequency_display }}</strong>
-        <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ result.bp_eps_r }} | σ = {{ result.bp_sigma }} S/m | tan&#948; = {{ result.bp_loss }}</div>
-        <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ result.dw_eps_r }} | σ = {{ result.dw_sigma }} S/m | tan&#948; = {{ result.dw_loss }}</div>
+        <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ glucose_result.bp_eps_r }} | σ = {{ glucose_result.bp_sigma }} S/m | tan&#948; = {{ glucose_result.bp_loss }}</div>
+        <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ glucose_result.dw_eps_r }} | σ = {{ glucose_result.dw_sigma }} S/m | tan&#948; = {{ glucose_result.dw_loss }}</div>
       </div>
       <div class="chart-section">
         <h2>Blood Plasma (Cole–Cole) Trends</h2>
@@ -409,24 +441,7 @@ HTML_TEMPLATE = """
       </div>
     {% endif %}
 
-    {% if tissue_cards %}
-      <div class="tissue-section">
-        <h2>Cole–Cole Tissue Properties</h2>
-        <div class="tissue-grid">
-          {% for tissue in tissue_cards %}
-            <div class="tissue-card">
-              <h3>Tissue: {{ tissue.tissue }}</h3>
-              <div class="freq">Frequency: {{ tissue.frequency }}</div>
-              <div class="metric">ε<sub>r</sub> = {{ tissue.epsilon_real }}</div>
-              <div class="metric">σ = {{ tissue.conductivity }} S/m</div>
-              <div class="metric">tan&#948; = {{ tissue.loss_tangent }}</div>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-    {% endif %}
-
-    <div class="footer">Enter glucose and frequency to compute dielectric properties.</div>
+    <div class="footer">Enter frequency and choose a tissue/mode to compute dielectric properties.</div>
   </div>
   {% if chart_curves %}
   <script>
@@ -512,26 +527,33 @@ def create_app() -> Flask:
     @app.route("/", methods=["GET", "POST"])
     def index():
         errors = []
-        result = None
+        tissue_result = None
+        glucose_result = None
         chart_curves = None
-        tissue_cards = None
-        glucose_raw = request.form.get("glucose", "")
-        frequency_raw = request.form.get("frequency", "")
+        glucose_raw = request.form.get("glucose", "").strip()
+        frequency_raw = request.form.get("frequency", "").strip()
         frequency_unit = request.form.get("frequency_unit", "GHz")
         if frequency_unit not in UNIT_FACTORS:
             frequency_unit = "GHz"
+        selected_tissue = request.form.get("tissue", "skin")
+        if selected_tissue not in TISSUE_MODELS:
+            selected_tissue = "skin"
+        selected_mode = request.form.get("mode", "cole-cole")
+        if selected_mode not in {"cole-cole", "table"}:
+            selected_mode = "cole-cole"
         frequency_display = "—"
 
         if request.method == "POST":
-            glucose = None
             frequency = None
-            try:
-                glucose = float(glucose_raw)
-            except ValueError:
-                errors.append("Glucose concentration must be a number.")
-            else:
-                if glucose < 0:
-                    errors.append("Glucose concentration must be zero or positive.")
+            glucose = None
+            if glucose_raw:
+                try:
+                    glucose = float(glucose_raw)
+                except ValueError:
+                    errors.append("Glucose concentration must be a number.")
+                else:
+                    if glucose < 0:
+                        errors.append("Glucose concentration must be zero or positive.")
 
             try:
                 frequency = float(frequency_raw)
@@ -539,89 +561,89 @@ def create_app() -> Flask:
                 errors.append("Frequency must be a number.")
             else:
                 if frequency <= 0:
-                    errors.append("Frequency must be > 0.")
+                    errors.append("Frequency must be positive.")
 
-            if not errors and glucose is not None and frequency is not None:
+            if not errors and frequency is not None:
                 unit_factor = UNIT_FACTORS.get(frequency_unit, 1.0)
                 frequency_hz = frequency * unit_factor
                 frequency_ghz = frequency_hz / 1e9
                 frequency_display = f"{frequency:.6g} {frequency_unit}"
 
-                bp_eps_r, bp_sigma = dielectric_BP(glucose, frequency_ghz)
-                dw_eps_r, dw_sigma = dielectric_DW(glucose, frequency_ghz)
-                bp_loss = compute_loss_tangent(bp_eps_r, bp_sigma, frequency_ghz)
-                dw_loss = compute_loss_tangent(dw_eps_r, dw_sigma, frequency_ghz)
-                result = {
-                    "bp_eps_r": f"{bp_eps_r:.6g}",
-                    "bp_sigma": f"{bp_sigma:.6g}",
-                    "bp_loss": "N/A" if math.isnan(bp_loss) else f"{bp_loss:.6g}",
-                    "dw_eps_r": f"{dw_eps_r:.6g}",
-                    "dw_sigma": f"{dw_sigma:.6g}",
-                    "dw_loss": "N/A" if math.isnan(dw_loss) else f"{dw_loss:.6g}",
-                    "bp_eps_r_val": bp_eps_r,
-                    "bp_sigma_val": bp_sigma,
-                    "bp_loss_val": bp_loss,
-                    "dw_eps_r_val": dw_eps_r,
-                    "dw_sigma_val": dw_sigma,
-                    "dw_loss_val": dw_loss,
-                }
-                reference_glucose = [72.0, 216.0, 330.0, 600.0]
-                freq_points = [round(0.5 + 0.5 * i, 2) for i in range(20)]
-                entries = [{"glucose": g, "label": f"{g:.0f} mg/dL"} for g in reference_glucose]
-                matched_entry = None
-                for entry in entries:
-                    if abs(entry["glucose"] - glucose) < 1e-6:
-                        entry["is_user"] = True
-                        entry["label"] = f"{entry['glucose']:.0f} mg/dL (input)"
-                        matched_entry = entry
-                        break
-                if matched_entry is None:
-                    entries.append(
-                        {
-                            "glucose": glucose,
-                            "label": f"Input {glucose:.2f} mg/dL",
-                            "is_user": True,
-                        }
-                    )
-                chart_curves = {
-                    "frequency": freq_points,
-                    "bp": {
-                        "datasets": _build_chart_datasets(entries, freq_points, dielectric_BP),
-                    },
-                    "dw": {
-                        "datasets": _build_chart_datasets(entries, freq_points, dielectric_DW),
-                    },
-                }
-                tissue_cards = []
-                for key, params in TISSUE_MODELS.items():
-                    properties = compute_properties(frequency_hz, params)
-                    properties = _apply_tissue_correction(key, frequency_hz, properties)
-                    tissue_cards.append(
-                        {
-                            "tissue": params["tissue"],
-                            "frequency": frequency_display,
-                            "epsilon_real": "N/A"
-                            if math.isnan(properties["epsilon_real"])
-                            else f"{properties['epsilon_real']:.6g}",
-                            "conductivity": "N/A"
-                            if math.isnan(properties["conductivity"])
-                            else f"{properties['conductivity']:.6g}",
-                            "loss_tangent": "N/A"
-                            if math.isnan(properties["loss_tangent"])
-                            else f"{properties['loss_tangent']:.6g}",
-                        }
-                    )
+                try:
+                    props = compute_properties(frequency_hz, selected_tissue, selected_mode)
+                except ValueError as exc:
+                    errors.append(str(exc))
+                else:
+                    mode_label = MODE_LABELS.get(selected_mode, selected_mode.title())
+                    tissue_result = {
+                        "title": f"{TISSUE_MODELS[selected_tissue]['tissue']} · {mode_label} ({frequency_display})",
+                        "epsilon_real": f"{props['epsilon_real']:.6g}",
+                        "epsilon_imag": f"{props['epsilon_imag']:.6g}",
+                        "loss_tangent": f"{props['loss_tangent']:.6g}",
+                        "conductivity": f"{props['conductivity']:.6g}",
+                    }
+
+                if not errors and glucose is not None:
+                    bp_eps_r, bp_sigma = dielectric_BP(glucose, frequency_ghz)
+                    dw_eps_r, dw_sigma = dielectric_DW(glucose, frequency_ghz)
+                    bp_loss = compute_loss_tangent(bp_eps_r, bp_sigma, frequency_ghz)
+                    dw_loss = compute_loss_tangent(dw_eps_r, dw_sigma, frequency_ghz)
+                    glucose_result = {
+                        "bp_eps_r": f"{bp_eps_r:.6g}",
+                        "bp_sigma": f"{bp_sigma:.6g}",
+                        "bp_loss": "N/A" if math.isnan(bp_loss) else f"{bp_loss:.6g}",
+                        "dw_eps_r": f"{dw_eps_r:.6g}",
+                        "dw_sigma": f"{dw_sigma:.6g}",
+                        "dw_loss": "N/A" if math.isnan(dw_loss) else f"{dw_loss:.6g}",
+                        "bp_eps_r_val": bp_eps_r,
+                        "bp_sigma_val": bp_sigma,
+                        "bp_loss_val": bp_loss,
+                        "dw_eps_r_val": dw_eps_r,
+                        "dw_sigma_val": dw_sigma,
+                        "dw_loss_val": dw_loss,
+                    }
+                    reference_glucose = [72.0, 216.0, 330.0, 600.0]
+                    freq_points = [round(0.5 + 0.5 * i, 2) for i in range(20)]
+                    entries = [{"glucose": g, "label": f"{g:.0f} mg/dL"} for g in reference_glucose]
+                    matched_entry = None
+                    for entry in entries:
+                        if abs(entry["glucose"] - glucose) < 1e-6:
+                            entry["is_user"] = True
+                            entry["label"] = f"{entry['glucose']:.0f} mg/dL (input)"
+                            matched_entry = entry
+                            break
+                    if matched_entry is None:
+                        entries.append(
+                            {
+                                "glucose": glucose,
+                                "label": f"Input {glucose:.2f} mg/dL",
+                                "is_user": True,
+                            }
+                        )
+                    chart_curves = {
+                        "frequency": freq_points,
+                        "bp": {
+                            "datasets": _build_chart_datasets(entries, freq_points, dielectric_BP),
+                        },
+                        "dw": {
+                            "datasets": _build_chart_datasets(entries, freq_points, dielectric_DW),
+                        },
+                    }
 
         context = {
             "errors": errors,
-            "result": result,
+            "tissue_result": tissue_result,
+            "glucose_result": glucose_result,
             "glucose_value": glucose_raw,
             "frequency_value": frequency_raw,
             "frequency_unit": frequency_unit,
             "frequency_units": list(UNIT_FACTORS.keys()),
             "frequency_display": frequency_display,
             "chart_curves": chart_curves,
-            "tissue_cards": tissue_cards,
+            "tissue_options": TISSUE_OPTIONS,
+            "selected_tissue": selected_tissue,
+            "mode_options": MODE_OPTIONS,
+            "selected_mode": selected_mode,
         }
         return render_template_string(HTML_TEMPLATE, **context)
 
