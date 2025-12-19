@@ -64,6 +64,11 @@ export class OptRun {
         };
         this.rawInput = '';
         this.parsedData = []; // Array of { glucose, freq, amp }
+
+        // Metrics
+        this.shift = null;       // Total Shift (0-1000)
+        this.sensitivity = null; // MHz/mg/dL
+        this.ampDelta = null;    // dB
     }
 }
 
