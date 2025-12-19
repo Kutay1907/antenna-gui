@@ -1,4 +1,5 @@
 import { modelStore, DATASET_KEYS, DATASET_LABELS } from '../domain/models.js';
+import { MetricsCalculator } from '../domain/metrics.js';
 
 export class ResultsView {
     constructor(resultsService) {
@@ -6,6 +7,7 @@ export class ResultsView {
         this.currentDatasetKey = DATASET_KEYS[0]; // Default to first
         this.subTabsContainer = document.querySelector('.sub-tabs');
         this.tableBody = document.querySelector('#results-table-body');
+        this.metricsContainer = document.querySelector('.metrics-container'); // Need to add this to HTML first
         this.selectedDatasetTitle = document.getElementById('selected-dataset-title');
 
         this.init();
@@ -108,6 +110,52 @@ export class ResultsView {
             `;
             this.tableBody.appendChild(tr);
         });
+
+        this.renderMetrics(dataset.rows);
+    }
+
+    renderMetrics(rows) {
+        if (!this.metricsContainer) return;
+
+        // Compute Metrics
+        const s11ShiftTotal = MetricsCalculator.calculateShift(rows, 's11_freq', 0, 1000);
+        const s21ShiftTotal = MetricsCalculator.calculateShift(rows, 's21_freq', 0, 1000);
+        const s11ShiftMid = MetricsCalculator.calculateShift(rows, 's11_freq', 72, 600);
+
+        const s11Sensitivity = MetricsCalculator.calculateSensitivity(s11ShiftTotal, 1000); // 1000 - 0
+
+        const s11AmpDelta = MetricsCalculator.calculateAmplitudeDelta(rows, 's11_amp', 0, 1000);
+        const s21AmpDelta = MetricsCalculator.calculateAmplitudeDelta(rows, 's21_amp', 0, 1000);
+
+        // Render Helper
+        const formatVal = (val, unit, factor = 1) => val !== null ? `${(val * factor).toFixed(4)} ${unit}` : '<span class="na">N/A</span>';
+
+        this.metricsContainer.innerHTML = `
+            <div class="metric-card">
+                <h4>Total S11 Shift (0-1000)</h4>
+                <div class="metric-value">${formatVal(s11ShiftTotal, 'GHz')}</div>
+            </div>
+            <div class="metric-card">
+                <h4>Total S21 Shift (0-1000)</h4>
+                <div class="metric-value">${formatVal(s21ShiftTotal, 'GHz')}</div>
+            </div>
+            <div class="metric-card">
+                <h4>S11 Shift (72-600)</h4>
+                <div class="metric-value">${formatVal(s11ShiftMid, 'GHz')}</div>
+            </div>
+            <div class="metric-card">
+                <h4>S11 Sensitivity (0-1000)</h4>
+                <div class="metric-value">${formatVal(s11Sensitivity, 'MHz/mg/dL')}</div>
+            </div>
+            <div class="metric-card">
+                <h4>S11 Amp Delta</h4>
+                <div class="metric-value">${formatVal(s11AmpDelta, 'dB')}</div>
+            </div>
+            <div class="metric-card">
+                <h4>S21 Amp Delta</h4>
+                <div class="metric-value">${formatVal(s21AmpDelta, 'dB')}</div>
+            </div>
+        `;
     }
 
     addRow() {
@@ -128,5 +176,7 @@ export class ResultsView {
         const dataset = modelStore.getDataset(this.currentDatasetKey);
         dataset.updateRow(index, field, value);
         this.resultsService.saveAll(); // Auto-save
+        // Re-render metrics on update
+        this.renderMetrics(dataset.rows);
     }
 }
