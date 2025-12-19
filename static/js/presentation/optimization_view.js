@@ -8,14 +8,13 @@ export class OptimizationView {
         this.addRunBtn = document.getElementById('add-run-btn');
         this.formContainer = document.getElementById('opt-form-container');
         this.currentRunId = null;
+        this.currentSubTab = 'parameters'; // 'parameters' or 'results'
 
         this.init();
     }
 
     async init() {
-        // Load from Supabase first
         await this.service.loadAll();
-
         this.bindEvents();
 
         if (modelStore.optRuns.length > 0) {
@@ -58,11 +57,13 @@ export class OptimizationView {
             });
 
             this.formContainer.addEventListener('click', (e) => {
-                if (e.target.id === 'parse-btn') {
-                    this.handleParse();
-                } else if (e.target.id === 'clear-input-btn') {
-                    this.handleClearInput();
-                } else if (e.target.id === 'save-params-btn') {
+                // Sub-tab switching
+                if (e.target.classList.contains('opt-sub-tab')) {
+                    this.currentSubTab = e.target.getAttribute('data-tab');
+                    this.render();
+                }
+                // Save
+                if (e.target.id === 'save-params-btn') {
                     this.handleSave();
                 }
             });
@@ -70,34 +71,32 @@ export class OptimizationView {
     }
 
     showAddDialog() {
-        // Create modal overlay
         const modal = document.createElement('div');
         modal.className = 'modal-overlay';
         modal.innerHTML = `
             <div class="modal-content">
-                <h3>New Parameter Set</h3>
+                <h3>✨ New Configuration</h3>
                 <div class="form-group">
-                    <label>Name</label>
-                    <input type="text" id="new-param-name" placeholder="e.g., Felt 1 Ring - Config A" value="Config ${modelStore.optRuns.length + 1}">
+                    <label>Configuration Name</label>
+                    <input type="text" id="new-param-name" placeholder="e.g., Config A" value="Config ${modelStore.optRuns.length + 1}">
                 </div>
                 <div class="form-group">
-                    <label>Link to Dataset</label>
+                    <label>Base Dataset Type</label>
                     <select id="new-param-dataset">
                         ${DATASET_KEYS.map(k => `<option value="${k}">${DATASET_LABELS[k]}</option>`).join('')}
                     </select>
                 </div>
+                <p class="modal-hint">This will create a new configuration with its own results table and parameters.</p>
                 <div class="modal-actions">
                     <button id="modal-cancel" class="secondary-btn">Cancel</button>
-                    <button id="modal-create" class="action-btn">Create</button>
+                    <button id="modal-create" class="action-btn">Create Configuration</button>
                 </div>
             </div>
         `;
         document.body.appendChild(modal);
 
-        // Focus the name input
         modal.querySelector('#new-param-name').focus();
 
-        // Handle buttons
         modal.querySelector('#modal-cancel').onclick = () => modal.remove();
         modal.querySelector('#modal-create').onclick = async () => {
             const name = modal.querySelector('#new-param-name').value.trim();
@@ -112,20 +111,28 @@ export class OptimizationView {
             await this.addRun(name, datasetKey);
         };
 
-        // Close on overlay click
         modal.onclick = (e) => {
             if (e.target === modal) modal.remove();
         };
     }
 
     async addRun(name, datasetKey) {
+        // Auto-set substrate based on dataset
+        const isJeans = datasetKey.includes('jeans');
+        const ringCount = datasetKey.includes('1ring') ? 1 : datasetKey.includes('2ring') ? 2 : 3;
+
         const run = await this.service.addRun(name, datasetKey);
+        run.parameters.substrate = isJeans ? 'Jeans' : 'Felt';
+        run.parameters.ring_count = ringCount;
+        await this.service.saveRun(run.id);
+
         this.currentRunId = run.id;
+        this.currentSubTab = 'parameters';
         this.render();
     }
 
     async deleteRun(id) {
-        if (confirm('Delete this parameter set?')) {
+        if (confirm('Delete this configuration and all its data?')) {
             await this.service.deleteRun(id);
             if (this.currentRunId === id) {
                 this.currentRunId = modelStore.optRuns.length > 0 ? modelStore.optRuns[0].id : null;
@@ -141,23 +148,7 @@ export class OptimizationView {
 
     async handleSave() {
         await this.service.saveRun(this.currentRunId);
-        alert('Parameters saved!');
-    }
-
-    handleParse() {
-        const result = this.service.parseAndSave(this.currentRunId);
-        if (result.success) {
-            this.render();
-        } else {
-            alert('Parsing Error: ' + result.error);
-        }
-    }
-
-    handleClearInput() {
-        if (confirm('Clear input data?')) {
-            this.service.clearData(this.currentRunId);
-            this.render();
-        }
+        alert('✓ Configuration saved!');
     }
 
     updateParameter(field, value) {
@@ -207,7 +198,7 @@ export class OptimizationView {
         });
 
         if (modelStore.optRuns.length === 0) {
-            html = '<p class="no-data">No parameter sets. Click + to add.</p>';
+            html = '<p class="no-data">No configurations yet.<br>Click <strong>+</strong> to add one.</p>';
         }
 
         this.runsList.innerHTML = html;
@@ -218,59 +209,57 @@ export class OptimizationView {
 
         const run = modelStore.getOptRun(this.currentRunId);
         if (!run) {
-            this.formContainer.innerHTML = '<p class="no-selection">No parameter set selected.</p>';
+            this.formContainer.innerHTML = '<div class="no-selection"><p>Select a configuration from the left<br>or create a new one.</p></div>';
             return;
         }
 
+        // Sub-tabs
+        const paramActive = this.currentSubTab === 'parameters' ? 'active' : '';
+        const resultsActive = this.currentSubTab === 'results' ? 'active' : '';
+
+        let content = '';
+        if (this.currentSubTab === 'parameters') {
+            content = this.renderParametersContent(run);
+        } else {
+            content = this.renderResultsContent(run);
+        }
+
+        this.formContainer.innerHTML = `
+            <div class="config-header">
+                <h3>${run.name}</h3>
+                <span class="config-badge">${DATASET_LABELS[run.dataset_key] || run.dataset_key}</span>
+            </div>
+            <div class="opt-sub-tabs">
+                <button class="opt-sub-tab ${paramActive}" data-tab="parameters">📐 Parameters</button>
+                <button class="opt-sub-tab ${resultsActive}" data-tab="results">📊 Results Table</button>
+            </div>
+            <div class="opt-tab-content">
+                ${content}
+            </div>
+        `;
+    }
+
+    renderParametersContent(run) {
         const p = run.parameters;
 
         const numInput = (lbl, name, val) => `
-            <div class="form-group">
+            <div class="form-group compact">
                 <label>${lbl}</label>
                 <input type="number" step="any" name="${name}" value="${val}">
             </div>
         `;
 
-        let tableRows = '';
-        if (run.parsedData && run.parsedData.length > 0) {
-            run.parsedData.forEach(row => {
-                tableRows += `<tr>
-                    <td>${row.glucose}</td>
-                    <td>${row.freq}</td>
-                    <td>${row.amp}</td>
-                </tr>`;
-            });
-        } else {
-            tableRows = '<tr><td colspan="3" class="text-center">No data parsed</td></tr>';
-        }
-
-        this.formContainer.innerHTML = `
-            <div class="form-section">
-                <h4>Parameter Set Info</h4>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Name</label>
-                        <input type="text" name="run-name" value="${run.name}">
-                    </div>
-                    <div class="form-group">
-                        <label>Dataset</label>
-                        <select name="dataset_key">
-                            ${DATASET_KEYS.map(k => `<option value="${k}" ${k === run.dataset_key ? 'selected' : ''}>${DATASET_LABELS[k]}</option>`).join('')}
-                        </select>
-                    </div>
-                </div>
-            </div>
-
+        return `
             <div class="form-section">
                 <h4>General</h4>
                 <div class="form-row">
-                    <div class="form-group">
+                    <div class="form-group compact">
                         <label>Substrate</label>
-                        <input type="text" name="substrate" value="${p.substrate}">
+                        <input type="text" name="substrate" value="${p.substrate}" readonly>
                     </div>
-                    ${numInput('Ring Count', 'ring_count', p.ring_count)}
+                    ${numInput('Rings', 'ring_count', p.ring_count)}
                     ${numInput('h', 'h', p.h)}
-                    ${numInput('t (Copper)', 't', p.t)}
+                    ${numInput('t', 't', p.t)}
                 </div>
             </div>
 
@@ -310,42 +299,67 @@ export class OptimizationView {
             </div>
             
             <div class="form-section">
-                <h4>Optional</h4>
+                <h4>Box</h4>
                 <div class="form-row">
-                    ${numInput('Bheight', 'bheight', p.bheight)}
-                    ${numInput('Bthick', 'bthick', p.bthick)}
+                    ${numInput('Height', 'bheight', p.bheight)}
+                    ${numInput('Thick', 'bthick', p.bthick)}
                 </div>
             </div>
 
-            <div class="form-section">
+            <div class="form-actions">
                 <button id="save-params-btn" class="action-btn">💾 Save Parameters</button>
             </div>
-            
+        `;
+    }
+
+    renderResultsContent(run) {
+        // Results table for this specific configuration
+        // This is separate from the main Results tab - stores data specific to this config
+        const defaultGlucose = [0, 72, 216, 330, 500, 600, 1000];
+
+        // Initialize results if not present
+        if (!run.results) {
+            run.results = defaultGlucose.map(g => ({
+                glucose: g,
+                s11_freq: 0, s11_amp: 0,
+                s21_freq: 0, s21_amp: 0
+            }));
+        }
+
+        let tableRows = '';
+        run.results.forEach((row, idx) => {
+            tableRows += `
+                <tr>
+                    <td><input type="number" value="${row.glucose}" data-idx="${idx}" data-field="glucose" class="result-input"></td>
+                    <td><input type="number" step="any" value="${row.s11_freq}" data-idx="${idx}" data-field="s11_freq" class="result-input"></td>
+                    <td><input type="number" step="any" value="${row.s11_amp}" data-idx="${idx}" data-field="s11_amp" class="result-input"></td>
+                    <td><input type="number" step="any" value="${row.s21_freq}" data-idx="${idx}" data-field="s21_freq" class="result-input"></td>
+                    <td><input type="number" step="any" value="${row.s21_amp}" data-idx="${idx}" data-field="s21_amp" class="result-input"></td>
+                </tr>
+            `;
+        });
+
+        return `
             <div class="form-section">
-                <h4>Input Data (Freq Amp pairs)</h4>
-                <div class="input-parser-container">
-                    <div class="input-area">
-                        <textarea name="rawInput" placeholder="Paste pairs here (e.g. 2.45 -10)...">${run.rawInput || ''}</textarea>
-                        <div class="parser-actions">
-                            <button id="parse-btn" class="action-btn">Parse</button>
-                            <button id="clear-input-btn" class="secondary-btn">Clear</button>
-                        </div>
-                    </div>
-                    <div class="preview-area">
-                        <table class="preview-table">
-                            <thead>
-                                <tr>
-                                    <th>Glucose (Calc)</th>
-                                    <th>Freq</th>
-                                    <th>Amp</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${tableRows}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                <h4>S-Parameter Results for ${run.name}</h4>
+                <table class="results-table compact">
+                    <thead>
+                        <tr>
+                            <th>Glucose (mg/dL)</th>
+                            <th>S11 Freq (GHz)</th>
+                            <th>S11 Amp (dB)</th>
+                            <th>S21 Freq (GHz)</th>
+                            <th>S21 Amp (dB)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="form-actions">
+                <button id="save-params-btn" class="action-btn">💾 Save Results</button>
             </div>
         `;
     }
