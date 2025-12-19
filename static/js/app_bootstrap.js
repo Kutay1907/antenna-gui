@@ -1,4 +1,3 @@
-```javascript
 import { TabsController } from './presentation/tabs_controller.js';
 import { ResultsView } from './presentation/results_view.js';
 import { StorageRepository } from './infrastructure/storage_repository.js';
@@ -8,11 +7,11 @@ import { OptimizationView } from './presentation/optimization_view.js';
 class App {
     static init() {
         console.log('App initializing...');
-        
+
         try {
             const storageRepo = new StorageRepository();
             const resultsService = new ResultsService(storageRepo);
-            
+
             // Load persisted data
             resultsService.loadAll();
 

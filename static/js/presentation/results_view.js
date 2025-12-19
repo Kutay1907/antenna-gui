@@ -1,4 +1,3 @@
-```javascript
 import { modelStore, DATASET_KEYS, DATASET_LABELS } from '../domain/models.js';
 import { MetricsCalculator } from '../domain/metrics.js';
 import { ChartsView } from './charts_view.js';
@@ -79,7 +78,7 @@ export class ResultsView {
         let html = '';
         DATASET_KEYS.forEach(key => {
             const active = key === this.currentDatasetKey ? 'active' : '';
-            html += `< button class="sub-tab-button ${active}" data - key="${key}" > ${ DATASET_LABELS[key] }</button > `;
+            html += `< button class="sub-tab-button ${active}" data - key="${key}" > ${DATASET_LABELS[key]}</button > `;
         });
         this.subTabsContainer.innerHTML = html;
     }
@@ -134,7 +133,7 @@ export class ResultsView {
         const s21AmpDelta = MetricsCalculator.calculateAmplitudeDelta(rows, 's21_amp', 0, 1000);
 
         // Render Helper
-        const formatVal = (val, unit, factor = 1) => val !== null ? `${ (val * factor).toFixed(4) } ${ unit } ` : '<span class="na">N/A</span>';
+        const formatVal = (val, unit, factor = 1) => val !== null ? `${(val * factor).toFixed(4)} ${unit} ` : '<span class="na">N/A</span>';
 
         this.metricsContainer.innerHTML = `
     < div class="metric-card" >
@@ -173,13 +172,13 @@ export class ResultsView {
         // Validation
         const glVal = Validators.validateGlucose(glInput.value);
         if (!glVal.valid) {
-            alert(`Invalid Glucose: ${ glVal.message } `);
+            alert(`Invalid Glucose: ${glVal.message} `);
             return;
         }
 
         const frVal = Validators.validateFrequency(frInput.value);
         if (!frVal.valid) {
-            alert(`Invalid Frequency: ${ frVal.message } `);
+            alert(`Invalid Frequency: ${frVal.message} `);
             return;
         }
 
