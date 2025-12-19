@@ -254,4 +254,62 @@ export class ResultsView {
         this.renderMetrics(dataset.rows);
         this.chartsView.render(dataset.rows);
     }
+
+    renderBulkUI() {
+        let container = document.getElementById('bulk-import-container');
+        if (!container) {
+            const tableContainer = document.querySelector('.table-container');
+            if (!tableContainer) return;
+            container = document.createElement('div');
+            container.id = 'bulk-import-container';
+            tableContainer.parentNode.insertBefore(container, tableContainer);
+        }
+
+        container.innerHTML = `
+            <div class="form-section">
+                <h4>Paste Data (Auto-fills Rows)</h4>
+                <div style="display: flex; gap: 16px;">
+                    <textarea id="bulk-paste-area" style="flex:1; height: 80px; font-family: monospace; padding: 8px;" placeholder="(7.314, -34.16548)&#10;(7.32, -34.18422)&#10;..."></textarea>
+                    <div style="display: flex; flex-direction: column; gap: 6px; justify-content: center;">
+                        <label style="font-weight: normal;"><input type="radio" name="target-param" value="s11" checked> S11</label>
+                        <label style="font-weight: normal;"><input type="radio" name="target-param" value="s21"> S21</label>
+                        <button id="apply-bulk-btn" class="action-btn small">Apply</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('apply-bulk-btn').onclick = () => this.applyBulkData();
+    }
+
+    applyBulkData() {
+        const text = document.getElementById('bulk-paste-area').value;
+        const isS11 = document.querySelector('input[name="target-param"][value="s11"]').checked;
+        const parsed = InputParser.parseBulkData(text);
+
+        if (parsed.length === 0) {
+            alert('No valid (freq, amp) data found.');
+            return;
+        }
+
+        const dataset = modelStore.getDataset(this.currentDatasetKey);
+
+        let count = 0;
+        dataset.rows.forEach((row, i) => {
+            if (i < parsed.length) {
+                if (isS11) {
+                    row.s11_freq = parsed[i].freq;
+                    row.s11_amp = parsed[i].amp;
+                } else {
+                    row.s21_freq = parsed[i].freq;
+                    row.s21_amp = parsed[i].amp;
+                }
+                count++;
+            }
+        });
+
+        this.resultsService.saveAll();
+        this.renderTable();
+        alert(`Applied data to ${count} rows.`);
+    }
 }

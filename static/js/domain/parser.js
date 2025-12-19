@@ -56,11 +56,29 @@ export class InputParser {
 
         return rows.map((row, i) => {
             const glucose = (1000 * i) / (N - 1);
-            // Round to 2 decimals for display cleaniness
             return {
                 ...row,
                 glucose: Math.round(glucose * 100) / 100
             };
         });
+    }
+
+    /**
+     * Parses bulk (freq, amp) data.
+     * Format: ( 7.314, -34.16548 )
+     * Returns array of { freq, amp }
+     */
+    static parseBulkData(text) {
+        const regex = /\(\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*\)/g;
+        const results = [];
+        let match;
+
+        while ((match = regex.exec(text)) !== null) {
+            results.push({
+                freq: parseFloat(match[1]),
+                amp: parseFloat(match[2])
+            });
+        }
+        return results;
     }
 }
