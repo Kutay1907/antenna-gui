@@ -66,6 +66,10 @@ export class OptimizationView {
                 if (e.target.id === 'save-params-btn') {
                     this.handleSave();
                 }
+                // Apply bulk data
+                if (e.target.id === 'opt-apply-bulk-btn') {
+                    this.applyBulkToOptResults();
+                }
             });
         }
     }
@@ -313,11 +317,8 @@ export class OptimizationView {
     }
 
     renderResultsContent(run) {
-        // Results table for this specific configuration
-        // This is separate from the main Results tab - stores data specific to this config
         const defaultGlucose = [0, 72, 216, 330, 500, 600, 1000];
 
-        // Initialize results if not present
         if (!run.results) {
             run.results = defaultGlucose.map(g => ({
                 glucose: g,
@@ -341,6 +342,18 @@ export class OptimizationView {
 
         return `
             <div class="form-section">
+                <h4>📥 Paste Data (Auto-fills Rows)</h4>
+                <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+                    <textarea id="opt-bulk-paste" style="flex:1; height: 80px; font-family: monospace; padding: 8px;" placeholder="(7.314, -34.16548)&#10;(7.32, -34.18422)&#10;..."></textarea>
+                    <div style="display: flex; flex-direction: column; gap: 6px; justify-content: center;">
+                        <label style="font-weight: normal;"><input type="radio" name="opt-target-param" value="s11" checked> S11</label>
+                        <label style="font-weight: normal;"><input type="radio" name="opt-target-param" value="s21"> S21</label>
+                        <button id="opt-apply-bulk-btn" class="action-btn small">Apply</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-section">
                 <h4>S-Parameter Results for ${run.name}</h4>
                 <table class="results-table compact">
                     <thead>
@@ -362,5 +375,46 @@ export class OptimizationView {
                 <button id="save-params-btn" class="action-btn">💾 Save Results</button>
             </div>
         `;
+    }
+
+    applyBulkToOptResults() {
+        const run = modelStore.getOptRun(this.currentRunId);
+        if (!run || !run.results) return;
+
+        const text = document.getElementById('opt-bulk-paste').value;
+        const isS11 = document.querySelector('input[name="opt-target-param"][value="s11"]').checked;
+
+        // Parse (freq, amp) format
+        const regex = /\(\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*\)/g;
+        const parsed = [];
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            parsed.push({
+                freq: parseFloat(match[1]),
+                amp: parseFloat(match[2])
+            });
+        }
+
+        if (parsed.length === 0) {
+            alert('No valid (freq, amp) data found.');
+            return;
+        }
+
+        let count = 0;
+        run.results.forEach((row, i) => {
+            if (i < parsed.length) {
+                if (isS11) {
+                    row.s11_freq = parsed[i].freq;
+                    row.s11_amp = parsed[i].amp;
+                } else {
+                    row.s21_freq = parsed[i].freq;
+                    row.s21_amp = parsed[i].amp;
+                }
+                count++;
+            }
+        });
+
+        this.render();
+        alert(`Applied data to ${count} rows.`);
     }
 }
