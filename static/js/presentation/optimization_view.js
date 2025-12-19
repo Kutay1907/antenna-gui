@@ -124,11 +124,34 @@ export class OptimizationView {
         if (!this.runsList) return;
 
         let html = '';
-        modelStore.optRuns.forEach(run => {
+
+        // Sort runs by sensitivity descending
+        const sortedRuns = [...modelStore.optRuns].sort((a, b) => {
+            const sA = a.sensitivity || -Infinity;
+            const sB = b.sensitivity || -Infinity;
+            return sB - sA;
+        });
+
+        sortedRuns.forEach(run => {
             const active = run.id === this.currentRunId ? 'active' : '';
+
+            let badge = '';
+            if (run.sensitivity !== null) {
+                // Show Sens and Shift. S = Sens, Sh = Shift
+                badge = `<div class="run-metrics">
+                            <small>Sens: ${run.sensitivity.toFixed(4)}</small>
+                            <small>Shift: ${run.shift.toFixed(4)}</small>
+                         </div>`;
+            } else {
+                badge = `<div class="run-metrics"><small>No Data</small></div>`;
+            }
+
             html += `
                 <div class="run-item ${active}" data-id="${run.id}">
-                    <span class="run-name">${run.name}</span>
+                    <div class="run-info">
+                        <span class="run-name">${run.name}</span>
+                        ${badge}
+                    </div>
                     <button class="delete-run-btn" data-id="${run.id}">×</button>
                 </div>
             `;
