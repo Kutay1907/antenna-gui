@@ -2,6 +2,7 @@ import { TabsController } from './presentation/tabs_controller.js';
 import { ResultsView } from './presentation/results_view.js';
 import { StorageRepository } from './infrastructure/storage_repository.js';
 import { ResultsService } from './application/results_service.js';
+import { OptimizationView } from './presentation/optimization_view.js';
 
 class App {
     static init() {
@@ -15,6 +16,7 @@ class App {
 
         new TabsController(storageRepo);
         new ResultsView(resultsService);
+        new OptimizationView();
     }
 }
 

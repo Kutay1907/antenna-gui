@@ -49,9 +49,26 @@ export class DatasetResult {
     }
 }
 
+export class OptRun {
+    constructor(id, name) {
+        this.id = id;
+        this.name = name;
+        this.parameters = {
+            substrate: 'Felt',
+            ring_count: 1,
+            h: 0,
+            g1: 0, g2: 0, g3: 0,
+            w1: 0, w2: 0, w3: 0, ws: 0,
+            l1: 0, l2: 0, l3: 0, l4: 0, l5: 0, l6: 0, lf: 0, ls: 0,
+            bheight: 0, bthick: 0
+        };
+    }
+}
+
 class ModelStore {
     constructor() {
         this.datasets = {};
+        this.optRuns = [];
         this.init();
     }
 
@@ -63,6 +80,22 @@ class ModelStore {
 
     getDataset(key) {
         return this.datasets[key];
+    }
+
+    addOptRun() {
+        const id = Date.now().toString();
+        const name = `Run ${this.optRuns.length + 1}`;
+        const run = new OptRun(id, name);
+        this.optRuns.push(run);
+        return run;
+    }
+
+    deleteOptRun(id) {
+        this.optRuns = this.optRuns.filter(r => r.id !== id);
+    }
+
+    getOptRun(id) {
+        return this.optRuns.find(r => r.id === id);
     }
 }
 

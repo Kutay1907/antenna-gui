@@ -167,8 +167,26 @@
 
     <!-- Optimization Tab -->
     <div id="optimization-tab" class="tab-content">
-      <h2>Parameter Optimization</h2>
-      <p>Optimization content will be implemented in Stage 06.</p>
+      <div class="opt-layout">
+        <!-- Sidebar -->
+        <div class="opt-sidebar">
+          <div class="sidebar-header">
+            <h3>Runs</h3>
+            <button id="add-run-btn" class="action-btn small">+ Add</button>
+          </div>
+          <div id="opt-runs-list" class="runs-list">
+            <!-- Runs injected here -->
+          </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="opt-main">
+          <h3 class="panel-title">Parameter Editor</h3>
+          <div id="opt-form-container" class="opt-form">
+            <!-- Form injected here -->
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="footer">Enter frequency and choose a tissue/mode to compute dielectric properties.</div>
