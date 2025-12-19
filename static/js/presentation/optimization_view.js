@@ -1,7 +1,9 @@
 import { modelStore } from '../domain/models.js';
+import { OptimizationService } from '../application/optimization_service.js';
 
 export class OptimizationView {
     constructor() {
+        this.service = new OptimizationService();
         this.runsList = document.getElementById('opt-runs-list');
         this.addRunBtn = document.getElementById('add-run-btn');
         this.formContainer = document.getElementById('opt-form-container');
@@ -44,12 +46,40 @@ export class OptimizationView {
         }
 
         if (this.formContainer) {
+            // Input delegation
             this.formContainer.addEventListener('input', (e) => {
                 const input = e.target;
-                if (input.hasAttribute('name')) {
+                if (input.name === 'rawInput') {
+                    this.service.updateRawInput(this.currentRunId, input.value);
+                } else if (input.hasAttribute('name')) {
                     this.updateParameter(input.name, input.value);
                 }
             });
+
+            // Button delegation
+            this.formContainer.addEventListener('click', (e) => {
+                if (e.target.id === 'parse-btn') {
+                    this.handleParse();
+                } else if (e.target.id === 'clear-input-btn') {
+                    this.handleClearInput();
+                }
+            });
+        }
+    }
+
+    handleParse() {
+        const result = this.service.parseAndSave(this.currentRunId);
+        if (result.success) {
+            this.render(); // Re-render to show table
+        } else {
+            alert('Parsing Error: ' + result.error);
+        }
+    }
+
+    handleClearInput() {
+        if (confirm('Clear input data?')) {
+            this.service.clearData(this.currentRunId);
+            this.render();
         }
     }
 
@@ -125,6 +155,20 @@ export class OptimizationView {
             </div>
         `;
 
+        // Render Data Table rows
+        let tableRows = '';
+        if (run.parsedData && run.parsedData.length > 0) {
+            run.parsedData.forEach(row => {
+                tableRows += `<tr>
+                    <td>${row.glucose}</td>
+                    <td>${row.freq}</td>
+                    <td>${row.amp}</td>
+                </tr>`;
+            });
+        } else {
+            tableRows = '<tr><td colspan="3" class="text-center">No data parsed</td></tr>';
+        }
+
         this.formContainer.innerHTML = `
             <div class="form-section">
                 <h4>General</h4>
@@ -178,6 +222,33 @@ export class OptimizationView {
                 <div class="form-row">
                     ${numInput('Bheight', 'bheight', p.bheight)}
                     ${numInput('Bthick', 'bthick', p.bthick)}
+                </div>
+            </div>
+            
+            <div class="form-section">
+                <h4>Input Logic (Freq Amp pairs)</h4>
+                <div class="input-parser-container">
+                    <div class="input-area">
+                        <textarea name="rawInput" placeholder="Paste pairs here (e.g. 2.45 -10)...">${run.rawInput || ''}</textarea>
+                        <div class="parser-actions">
+                            <button id="parse-btn" class="action-btn">Parse</button>
+                            <button id="clear-input-btn" class="secondary-btn">Clear</button>
+                        </div>
+                    </div>
+                    <div class="preview-area">
+                        <table class="preview-table">
+                            <thead>
+                                <tr>
+                                    <th>Glucose (Calc)</th>
+                                    <th>Freq</th>
+                                    <th>Amp</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         `;

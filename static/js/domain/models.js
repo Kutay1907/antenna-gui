@@ -62,6 +62,8 @@ export class OptRun {
             l1: 0, l2: 0, l3: 0, l4: 0, l5: 0, l6: 0, lf: 0, ls: 0,
             bheight: 0, bthick: 0
         };
+        this.rawInput = '';
+        this.parsedData = []; // Array of { glucose, freq, amp }
     }
 }
 
