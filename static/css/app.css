@@ -196,6 +196,9 @@ canvas {
   display: flex;
   border-bottom: 1px solid #ccd5db;
   margin-bottom: 24px;
+  position: relative;
+  z-index: 20;
+  /* Ensure tabs are clickable above everything */
 }
 
 .tab-button {
