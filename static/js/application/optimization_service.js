@@ -182,4 +182,71 @@ export class OptimizationService {
             run.rawInput = '';
         }
     }
+
+    /**
+     * Loads results for a specific parameter config from Supabase.
+     */
+    async loadResults(runId) {
+        try {
+            const { data, error } = await supabase
+                .from('parameter_results')
+                .select('*')
+                .eq('parameter_id', runId)
+                .order('glucose', { ascending: true });
+
+            if (error) {
+                console.error('Load results error:', error);
+                return null;
+            }
+
+            if (data && data.length > 0) {
+                return data.map(r => ({
+                    glucose: r.glucose,
+                    s11_freq: r.s11_freq || 0,
+                    s11_amp: r.s11_amp || 0,
+                    s21_freq: r.s21_freq || 0,
+                    s21_amp: r.s21_amp || 0
+                }));
+            }
+            return null;
+        } catch (err) {
+            console.error('Failed to load results:', err);
+            return null;
+        }
+    }
+
+    /**
+     * Saves results for a specific parameter config to Supabase.
+     */
+    async saveResults(runId, results) {
+        try {
+            // Delete existing results for this parameter
+            await supabase
+                .from('parameter_results')
+                .delete()
+                .eq('parameter_id', runId);
+
+            // Insert new results
+            const rows = results.map(r => ({
+                parameter_id: runId,
+                glucose: r.glucose,
+                s11_freq: r.s11_freq || 0,
+                s11_amp: r.s11_amp || 0,
+                s21_freq: r.s21_freq || 0,
+                s21_amp: r.s21_amp || 0
+            }));
+
+            const { error } = await supabase.from('parameter_results').insert(rows);
+            if (error) {
+                console.error('Save results error:', error);
+                alert('Failed to save results: ' + error.message);
+                return false;
+            }
+            console.log('Saved results for parameter:', runId);
+            return true;
+        } catch (err) {
+            console.error('Failed to save results:', err);
+            return false;
+        }
+    }
 }

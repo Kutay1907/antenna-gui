@@ -145,14 +145,36 @@ export class OptimizationView {
         }
     }
 
-    selectRun(id) {
+    async selectRun(id) {
         this.currentRunId = id;
+
+        // Load results for this run from Supabase
+        const run = modelStore.getOptRun(id);
+        if (run) {
+            const results = await this.service.loadResults(id);
+            if (results) {
+                run.results = results;
+            }
+        }
+
         this.render();
     }
 
     async handleSave() {
-        await this.service.saveRun(this.currentRunId);
-        alert('✓ Configuration saved!');
+        const run = modelStore.getOptRun(this.currentRunId);
+        if (!run) return;
+
+        if (this.currentSubTab === 'results' && run.results) {
+            // Save results to parameter_results table
+            const success = await this.service.saveResults(this.currentRunId, run.results);
+            if (success) {
+                alert('✓ Results saved!');
+            }
+        } else {
+            // Save parameters
+            await this.service.saveRun(this.currentRunId);
+            alert('✓ Parameters saved!');
+        }
     }
 
     updateParameter(field, value) {
