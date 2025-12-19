@@ -3,21 +3,17 @@
  */
 
 export const DATASET_KEYS = [
-    "felt_1_ring",
-    "felt_2_ring",
-    "felt_3_ring",
-    "jeans_1_ring",
-    "jeans_2_ring",
-    "jeans_3_ring"
+    'felt_1ring', 'felt_2ring', 'felt_3ring',
+    'jeans_1ring', 'jeans_2ring', 'jeans_3ring'
 ];
 
 export const DATASET_LABELS = {
-    "felt_1_ring": "Felt 1 Ring",
-    "felt_2_ring": "Felt 2 Ring",
-    "felt_3_ring": "Felt 3 Ring",
-    "jeans_1_ring": "Jeans 1 Ring",
-    "jeans_2_ring": "Jeans 2 Ring",
-    "jeans_3_ring": "Jeans 3 Ring"
+    'felt_1ring': 'Felt (1 Ring)',
+    'felt_2ring': 'Felt (2 Rings)',
+    'felt_3ring': 'Felt (3 Rings)',
+    'jeans_1ring': 'Jeans (1 Ring)',
+    'jeans_2ring': 'Jeans (2 Rings)',
+    'jeans_3ring': 'Jeans (3 Rings)'
 };
 
 export class DatasetResult {
@@ -27,9 +23,8 @@ export class DatasetResult {
             0, 72, 216, 330, 500, 600, 1000
         ].map(g => ({
             glucose: g,
-            freq: 0,
-            s11: 0,
-            s21: 0
+            s11_freq: 0, s11_amp: 0,
+            s21_freq: 0, s21_amp: 0
         }));
     }
 

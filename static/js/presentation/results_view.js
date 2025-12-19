@@ -1,6 +1,7 @@
 import { modelStore, DATASET_KEYS, DATASET_LABELS } from '../domain/models.js';
 import { MetricsCalculator } from '../domain/metrics.js';
 import { ChartsView } from './charts_view.js';
+import { InputParser } from '../domain/parser.js';
 import { Validators } from '../domain/validators.js';
 
 export class ResultsView {
@@ -100,8 +101,37 @@ export class ResultsView {
             this.selectedDatasetTitle.textContent = DATASET_LABELS[this.currentDatasetKey];
         }
 
-        // Render Rows
+        // Bulk Parser UI
+        const parserHtml = `
+            <div class="form-section">
+                <h4>Bulk Data Import (Paste S-Parameter Data)</h4>
+                <div style="display: flex; gap: 16px; align-items: start;">
+                    <textarea id="bulk-paste-area" placeholder="( 7.314, -34.16548 )&#10;( 7.32, -34.18422 )&#10;..." style="width: 300px; height: 100px; font-family: monospace; padding: 8px;"></textarea>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label><input type="radio" name="target-param" value="s11" checked> S11 (Freq, dB)</label>
+                        <label><input type="radio" name="target-param" value="s21"> S21 (Freq, dB)</label>
+                        <button id="apply-bulk-btn" class="action-btn small">Apply to Table</button>
+                    </div>
+                </div>
+                <small style="color: #666;">Pastes data into rows sequentially (1st line -> 0mg, 2nd -> 72mg, etc.)</small>
+            </div>
+        `;
+
+        // Render Rows (Prepend Parser)
         this.tableBody.innerHTML = '';
+
+        // This is a bit hacky to inject the parser, but we need a container. 
+        // Ideally index.html should have a container. 
+        // Let's prepend it to the table container in the DOM if not exists?
+        // Actually, let's just use the existing structure and maybe add a slot in index.html or just rely on the user manually handling it?
+        // The user wants it "in the results section".
+        // Let's try to find a place. The tableBody is inside <tbody>. checking renderTable context.
+        // renderTable clears tableBody (tbody). We can't put divs in tbody.
+        // We need to inject this form OUTSIDE the table.
+        // Let's use a dedicated container in index.html or create one dynamically.
+
+        this.renderBulkUI();
+
         dataset.rows.forEach((row, index) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
