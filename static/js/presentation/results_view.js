@@ -61,12 +61,14 @@ export class ResultsView {
             });
         }
 
-        // Clear Data
+        // Clear Data (Reinitialize with default rows)
         const clearBtn = document.getElementById('clear-data-btn');
         if (clearBtn) {
             clearBtn.addEventListener('click', () => {
-                if (confirm('Are you sure you want to clear all results data?')) {
-                    this.resultsService.clearAllData();
+                if (confirm('Are you sure you want to clear all results data? The 7 glucose rows will be reset to zero.')) {
+                    // Reinitialize all datasets with default rows
+                    modelStore.init();
+                    this.resultsService.saveAll();
                     this.renderTable();
                 }
             });
@@ -79,7 +81,7 @@ export class ResultsView {
         let html = '';
         DATASET_KEYS.forEach(key => {
             const active = key === this.currentDatasetKey ? 'active' : '';
-            html += `< button class="sub-tab-button ${active}" data - key="${key}" > ${DATASET_LABELS[key]}</button > `;
+            html += `<button class="sub-tab-button ${active}" data-key="${key}">${DATASET_LABELS[key]}</button>`;
         });
         this.subTabsContainer.innerHTML = html;
     }
