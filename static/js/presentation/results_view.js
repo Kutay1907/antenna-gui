@@ -1,6 +1,8 @@
+```javascript
 import { modelStore, DATASET_KEYS, DATASET_LABELS } from '../domain/models.js';
 import { MetricsCalculator } from '../domain/metrics.js';
 import { ChartsView } from './charts_view.js';
+import { Validators } from '../domain/validators.js';
 
 export class ResultsView {
     constructor(resultsService) {
@@ -77,7 +79,7 @@ export class ResultsView {
         let html = '';
         DATASET_KEYS.forEach(key => {
             const active = key === this.currentDatasetKey ? 'active' : '';
-            html += `<button class="sub-tab-button ${active}" data-key="${key}">${DATASET_LABELS[key]}</button>`;
+            html += `< button class="sub-tab-button ${active}" data - key="${key}" > ${ DATASET_LABELS[key] }</button > `;
         });
         this.subTabsContainer.innerHTML = html;
     }
@@ -104,13 +106,13 @@ export class ResultsView {
         dataset.rows.forEach((row, index) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><input type="number" step="any" value="${row.glucose}" data-index="${index}" data-field="glucose"></td>
+    < td ><input type="number" step="any" value="${row.glucose}" data-index="${index}" data-field="glucose"></td>
                 <td><input type="number" step="any" value="${row.s11_freq}" data-index="${index}" data-field="s11_freq"></td>
                 <td><input type="number" step="any" value="${row.s11_amp}" data-index="${index}" data-field="s11_amp"></td>
                 <td><input type="number" step="any" value="${row.s21_freq}" data-index="${index}" data-field="s21_freq"></td>
                 <td><input type="number" step="any" value="${row.s21_amp}" data-index="${index}" data-field="s21_amp"></td>
                 <td><button class="delete-btn" data-index="${index}">🗑️</button></td>
-            `;
+`;
             this.tableBody.appendChild(tr);
         });
 
@@ -132,13 +134,13 @@ export class ResultsView {
         const s21AmpDelta = MetricsCalculator.calculateAmplitudeDelta(rows, 's21_amp', 0, 1000);
 
         // Render Helper
-        const formatVal = (val, unit, factor = 1) => val !== null ? `${(val * factor).toFixed(4)} ${unit}` : '<span class="na">N/A</span>';
+        const formatVal = (val, unit, factor = 1) => val !== null ? `${ (val * factor).toFixed(4) } ${ unit } ` : '<span class="na">N/A</span>';
 
         this.metricsContainer.innerHTML = `
-            <div class="metric-card">
+    < div class="metric-card" >
                 <h4>Total S11 Shift (0-1000)</h4>
                 <div class="metric-value">${formatVal(s11ShiftTotal, 'GHz')}</div>
-            </div>
+            </div >
             <div class="metric-card">
                 <h4>Total S21 Shift (0-1000)</h4>
                 <div class="metric-value">${formatVal(s21ShiftTotal, 'GHz')}</div>
@@ -159,14 +161,53 @@ export class ResultsView {
                 <h4>S21 Amp Delta</h4>
                 <div class="metric-value">${formatVal(s21AmpDelta, 'dB')}</div>
             </div>
-        `;
+`;
     }
 
     addRow() {
+        const glInput = document.getElementById('new-row-glucose');
+        const frInput = document.getElementById('new-row-freq');
+        const s11Input = document.getElementById('new-row-s11');
+        const s21Input = document.getElementById('new-row-s21');
+
+        // Validation
+        const glVal = Validators.validateGlucose(glInput.value);
+        if (!glVal.valid) {
+            alert(`Invalid Glucose: ${ glVal.message } `);
+            return;
+        }
+
+        const frVal = Validators.validateFrequency(frInput.value);
+        if (!frVal.valid) {
+            alert(`Invalid Frequency: ${ frVal.message } `);
+            return;
+        }
+
+        const s11Val = Validators.validateAmplitude(s11Input.value);
+        const s21Val = Validators.validateAmplitude(s21Input.value);
+
+        if (!s11Val.valid || !s21Val.valid) {
+            alert('S-Parameters must be valid numbers');
+            return;
+        }
+
         const dataset = modelStore.getDataset(this.currentDatasetKey);
-        dataset.addRow();
+        dataset.addRow({
+            glucose: parseFloat(glInput.value),
+            freq: parseFloat(frInput.value),
+            s11: parseFloat(s11Input.value),
+            s21: parseFloat(s21Input.value)
+        });
+
         this.resultsService.saveAll(); // Auto-save
         this.renderTable();
+
+        // Clear inputs
+        glInput.value = '';
+        frInput.value = '';
+        s11Input.value = '';
+        s21Input.value = '';
+        glInput.focus();
     }
 
     deleteRow(index) {
