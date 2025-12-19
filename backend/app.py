@@ -1,7 +1,8 @@
 from bisect import bisect_left
 import math
+import os
 
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template, request
 
 
 EPS0 = 8.854187817e-12  # Vacuum permittivity (F/m)
@@ -298,6 +299,7 @@ def dielectric_DW(glucose_mgdl: float, freq_ghz: float):
     sigma = sig_model + sigma_correction
     return float(er), float(sigma)
 
+
 def _build_chart_datasets(glucose_entries, freq_points, calculator):
     datasets = []
     for entry in glucose_entries:
@@ -319,226 +321,12 @@ def _build_chart_datasets(glucose_entries, freq_points, calculator):
     return datasets
 
 
-HTML_TEMPLATE = """
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Dynamic Dielectric Property Calculator</title>
-  <style>
-    body { font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 40px; color: #2b3a42; }
-    .container { max-width: 960px; margin: auto; background: #fff; padding: 28px 36px 36px; border-radius: 14px; box-shadow: 0 10px 28px rgba(15,35,58,0.12); }
-    h1 { font-size: 2rem; margin-bottom: 1.2rem; text-align: center; color: #1a2a34; }
-    label { font-weight: 600; display: block; margin-bottom: 6px; color: #2b3a42; }
-    input { width: 100%; padding: 10px 12px; margin-bottom: 16px; border: 1px solid #ccd5db; border-radius: 6px; font-size: 1rem; background-color: #fdfdfd; }
-    .freq-input { display: flex; gap: 10px; align-items: stretch; }
-    .freq-input input {
-      flex: 1;
-      margin-bottom: 0;
-      padding: 10px 12px;
-      border: 1px solid #ccd5db;
-      border-radius: 6px;
-      background-color: #fdfdfd;
-      font-size: 1rem;
-      color: #2b3a42;
-    }
-    .freq-input select {
-      padding: 10px 12px;
-      border-radius: 6px;
-      border: 1px solid #ccd5db;
-      background-color: #fff;
-      font-size: 1rem;
-      width: 110px;
-    }
-    .freq-input-wrapper { margin-bottom: 16px; }
-    select { width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid #ccd5db; background-color: #fff; font-size: 1rem; margin-bottom: 16px; }
-    button { background-color: #1e88e5; border: none; color: white; padding: 12px 18px; border-radius: 6px; font-size: 1rem; cursor: pointer; width: 100%; transition: background-color 0.2s ease; }
-    button:hover { background-color: #1669bb; }
-    .error { background-color: #fdecea; color: #b22b27; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; border-left: 4px solid #d93025; }
-    .result { background-color: #eef8f2; color: #1d5d3c; padding: 16px 18px; border-radius: 6px; margin-top: 20px; line-height: 1.6; border-left: 4px solid #2e7d32; }
-    .result strong { display: block; font-size: 1.15rem; margin-bottom: 8px; }
-    .chart-section { margin-top: 28px; }
-    .chart-section h2 { font-size: 1.4rem; margin-bottom: 12px; color: #1a2a34; }
-    .chart-grid { display: grid; gap: 18px; }
-    @media (min-width: 720px) {
-      .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
-    .chart-card { background: #ffffff; border-radius: 12px; padding: 18px 18px 24px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); border: 1px solid rgba(14,31,53,0.06); }
-    .chart-card h3 { font-size: 1.05rem; margin-bottom: 12px; text-align: center; color: #2b3a42; }
-    canvas { width: 100% !important; height: 280px !important; }
-    .footer { margin-top: 28px; font-size: 0.85rem; color: #5f6c74; text-align: center; }
-  </style>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-</head>
-<body>
-  <div class="container">
-    <h1>Dynamic Dielectric Property Calculator</h1>
-    {% if errors %}
-      <div class="error">
-        {% for error in errors %}
-          <div>{{ error }}</div>
-        {% endfor %}
-      </div>
-    {% endif %}
-    <form method="post">
-      <label for="glucose">Glucose concentration (mg/dL)</label>
-      <input type="number" step="any" id="glucose" name="glucose" value="{{ glucose_value }}" required>
-
-      <label for="frequency">Frequency</label>
-      <div class="freq-input-wrapper">
-        <div class="freq-input">
-          <input type="number" step="any" min="0" id="frequency" name="frequency" value="{{ frequency_value }}" required>
-          <select name="frequency_unit">
-            {% for unit in frequency_units %}
-              <option value="{{ unit }}" {% if unit == frequency_unit %}selected{% endif %}>{{ unit }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-
-      <label for="tissue">Tissue</label>
-      <select id="tissue" name="tissue">
-        {% for key, label in tissue_options %}
-          <option value="{{ key }}" {% if key == selected_tissue %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-
-      <label for="mode">Mode</label>
-      <select id="mode" name="mode">
-        {% for key, label in mode_options %}
-          <option value="{{ key }}" {% if key == selected_mode %}selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-
-      <button type="submit">Compute</button>
-    </form>
-
-    {% if tissue_result %}
-      <div class="result">
-        <strong>{{ tissue_result.title }}</strong>
-        <div>ε<sub>r</sub> = {{ tissue_result.epsilon_real }}</div>
-        <div>ε″ = {{ tissue_result.epsilon_imag }}</div>
-        <div>tan&#948; = {{ tissue_result.loss_tangent }}</div>
-        <div>σ = {{ tissue_result.conductivity }} S/m</div>
-      </div>
-    {% endif %}
-
-    {% if glucose_result %}
-      <div class="result">
-        <strong>Computed at {{ frequency_display }}</strong>
-        <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ glucose_result.bp_eps_r }} | σ = {{ glucose_result.bp_sigma }} S/m | tan&#948; = {{ glucose_result.bp_loss }}</div>
-        <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ glucose_result.dw_eps_r }} | σ = {{ glucose_result.dw_sigma }} S/m | tan&#948; = {{ glucose_result.dw_loss }}</div>
-      </div>
-      <div class="chart-section">
-        <h2>Blood Plasma (Cole–Cole) Trends</h2>
-        <div class="chart-grid">
-          <div class="chart-card">
-            <h3>Relative Permittivity vs Frequency</h3>
-            <canvas id="bpPermChart"></canvas>
-          </div>
-          <div class="chart-card">
-            <h3>Conductivity vs Frequency</h3>
-            <canvas id="bpCondChart"></canvas>
-          </div>
-        </div>
-      </div>
-      <div class="chart-section">
-        <h2>De-ionized Water (Debye) Trends</h2>
-        <div class="chart-grid">
-          <div class="chart-card">
-            <h3>Relative Permittivity vs Frequency</h3>
-            <canvas id="dwPermChart"></canvas>
-          </div>
-          <div class="chart-card">
-            <h3>Conductivity vs Frequency</h3>
-            <canvas id="dwCondChart"></canvas>
-          </div>
-        </div>
-      </div>
-    {% endif %}
-
-    <div class="footer">Enter frequency and choose a tissue/mode to compute dielectric properties.</div>
-  </div>
-  {% if chart_curves %}
-  <script>
-    const curveData = {{ chart_curves | tojson }};
-    const freqLabels = curveData.frequency.map(f => f.toFixed(2));
-    const baseColors = ['#1565c0', '#00897b', '#ef6c00', '#6a1b9a', '#00838f', '#7b1fa2'];
-    const userColor = '#d81b60';
-
-    function buildDatasets(datasets, valueKey) {
-      let colorIndex = 0;
-      return datasets.map(set => {
-        const isUser = Boolean(set.isUser);
-        const color = isUser ? userColor : baseColors[colorIndex++ % baseColors.length];
-        return {
-          label: set.label,
-          data: set[valueKey],
-          borderColor: color,
-          borderWidth: isUser ? 3 : 2,
-          borderDash: isUser ? [] : [0],
-          fill: false,
-          tension: 0.18,
-          pointRadius: isUser ? 3 : 1,
-          pointHoverRadius: isUser ? 5 : 3,
-          pointBackgroundColor: color,
-          spanGaps: false,
-        };
-      });
-    }
-
-    function createLineChart(canvasId, datasets, valueKey, yAxisLabel) {
-      const ctx = document.getElementById(canvasId).getContext('2d');
-      return new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: freqLabels,
-          datasets: buildDatasets(datasets, valueKey),
-        },
-        options: {
-          responsive: true,
-          interaction: { mode: 'nearest', intersect: false },
-          plugins: {
-            legend: {
-              labels: {
-                usePointStyle: true,
-                boxWidth: 8,
-              }
-            },
-            tooltip: {
-              callbacks: {
-                title: (tooltipItems) => `Frequency: ${tooltipItems[0].label} GHz`,
-                label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(3)}`
-              }
-            }
-          },
-          scales: {
-            x: {
-              title: { display: true, text: 'Frequency (GHz)' },
-              ticks: { maxTicksLimit: 10 }
-            },
-            y: {
-              title: { display: true, text: yAxisLabel },
-              ticks: { maxTicksLimit: 8 }
-            }
-          }
-        }
-      });
-    }
-
-    createLineChart('bpPermChart', curveData.bp.datasets, 'permittivity', 'εr');
-    createLineChart('bpCondChart', curveData.bp.datasets, 'conductivity', 'σ (S/m)');
-    createLineChart('dwPermChart', curveData.dw.datasets, 'permittivity', 'εr');
-    createLineChart('dwCondChart', curveData.dw.datasets, 'conductivity', 'σ (S/m)');
-  </script>
-  {% endif %}
-</body>
-</html>
-"""
-
-
 def create_app() -> Flask:
-    app = Flask(__name__)
+    # Adjust paths for nested backend folder
+    template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'templates'))
+    static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'static'))
+    
+    app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 
     @app.route("/", methods=["GET", "POST"])
     def index():
@@ -661,7 +449,7 @@ def create_app() -> Flask:
             "mode_options": MODE_OPTIONS,
             "selected_mode": selected_mode,
         }
-        return render_template_string(HTML_TEMPLATE, **context)
+        return render_template("index.html", **context)
 
     return app
 
@@ -670,7 +458,7 @@ app = create_app()
 
 
 def main():
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5000, debug=True)
 
 
 if __name__ == "__main__":

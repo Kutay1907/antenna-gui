@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dynamic Dielectric Property Calculator</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Dynamic Dielectric Property Calculator</h1>
+    
+    <nav class="tabs">
+        <button class="tab-button active" data-tab="calculator">Calculator</button>
+        <button class="tab-button" data-tab="results">Results</button>
+        <button class="tab-button" data-tab="optimization">Parameter Optimization</button>
+    </nav>
+
+    <!-- Calculator Tab -->
+    <div id="calculator-tab" class="tab-content active">
+        {% if errors %}
+          <div class="error">
+            {% for error in errors %}
+              <div>{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <form method="post">
+          <label for="glucose">Glucose concentration (mg/dL)</label>
+          <input type="number" step="any" id="glucose" name="glucose" value="{{ glucose_value }}" required>
+    
+          <label for="frequency">Frequency</label>
+          <div class="freq-input-wrapper">
+            <div class="freq-input">
+              <input type="number" step="any" min="0" id="frequency" name="frequency" value="{{ frequency_value }}" required>
+              <select name="frequency_unit">
+                {% for unit in frequency_units %}
+                  <option value="{{ unit }}" {% if unit == frequency_unit %}selected{% endif %}>{{ unit }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+    
+          <label for="tissue">Tissue</label>
+          <select id="tissue" name="tissue">
+            {% for key, label in tissue_options %}
+              <option value="{{ key }}" {% if key == selected_tissue %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+    
+          <label for="mode">Mode</label>
+          <select id="mode" name="mode">
+            {% for key, label in mode_options %}
+              <option value="{{ key }}" {% if key == selected_mode %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+    
+          <button type="submit">Compute</button>
+        </form>
+    
+        {% if tissue_result %}
+          <div class="result">
+            <strong>{{ tissue_result.title }}</strong>
+            <div>ε<sub>r</sub> = {{ tissue_result.epsilon_real }}</div>
+            <div>ε″ = {{ tissue_result.epsilon_imag }}</div>
+            <div>tan&#948; = {{ tissue_result.loss_tangent }}</div>
+            <div>σ = {{ tissue_result.conductivity }} S/m</div>
+          </div>
+        {% endif %}
+    
+        {% if glucose_result %}
+          <div class="result">
+            <strong>Computed at {{ frequency_display }}</strong>
+            <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ glucose_result.bp_eps_r }} | σ = {{ glucose_result.bp_sigma }} S/m | tan&#948; = {{ glucose_result.bp_loss }}</div>
+            <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ glucose_result.dw_eps_r }} | σ = {{ glucose_result.dw_sigma }} S/m | tan&#948; = {{ glucose_result.dw_loss }}</div>
+          </div>
+          <div class="chart-section">
+            <h2>Blood Plasma (Cole–Cole) Trends</h2>
+            <div class="chart-grid">
+              <div class="chart-card">
+                <h3>Relative Permittivity vs Frequency</h3>
+                <canvas id="bpPermChart"></canvas>
+              </div>
+              <div class="chart-card">
+                <h3>Conductivity vs Frequency</h3>
+                <canvas id="bpCondChart"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="chart-section">
+            <h2>De-ionized Water (Debye) Trends</h2>
+            <div class="chart-grid">
+              <div class="chart-card">
+                <h3>Relative Permittivity vs Frequency</h3>
+                <canvas id="dwPermChart"></canvas>
+              </div>
+              <div class="chart-card">
+                <h3>Conductivity vs Frequency</h3>
+                <canvas id="dwCondChart"></canvas>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+    </div>
+
+    <!-- Results Tab -->
+    <div id="results-tab" class="tab-content">
+        <h2>Results</h2>
+        <p>Results content will be implemented in Stage 02.</p>
+    </div>
+
+    <!-- Optimization Tab -->
+    <div id="optimization-tab" class="tab-content">
+        <h2>Parameter Optimization</h2>
+        <p>Optimization content will be implemented in Stage 06.</p>
+    </div>
+
+    <div class="footer">Enter frequency and choose a tissue/mode to compute dielectric properties.</div>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/presentation/tabs_controller.js') }}" type="module"></script>
+  <script src="{{ url_for('static', filename='js/app_bootstrap.js') }}" type="module"></script>
+
+  {% if chart_curves %}
+  <script>
+    const curveData = {{ chart_curves | tojson }};
+    const freqLabels = curveData.frequency.map(f => f.toFixed(2));
+    const baseColors = ['#1565c0', '#00897b', '#ef6c00', '#6a1b9a', '#00838f', '#7b1fa2'];
+    const userColor = '#d81b60';
+
+    function buildDatasets(datasets, valueKey) {
+      let colorIndex = 0;
+      return datasets.map(set => {
+        const isUser = Boolean(set.isUser);
+        const color = isUser ? userColor : baseColors[colorIndex++ % baseColors.length];
+        return {
+          label: set.label,
+          data: set[valueKey],
+          borderColor: color,
+          borderWidth: isUser ? 3 : 2,
+          borderDash: isUser ? [] : [0],
+          fill: false,
+          tension: 0.18,
+          pointRadius: isUser ? 3 : 1,
+          pointHoverRadius: isUser ? 5 : 3,
+          pointBackgroundColor: color,
+          spanGaps: false,
+        };
+      });
+    }
+
+    function createLineChart(canvasId, datasets, valueKey, yAxisLabel) {
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      return new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: freqLabels,
+          datasets: buildDatasets(datasets, valueKey),
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'nearest', intersect: false },
+          plugins: {
+            legend: {
+              labels: {
+                usePointStyle: true,
+                boxWidth: 8,
+              }
+            },
+            tooltip: {
+              callbacks: {
+                title: (tooltipItems) => `Frequency: ${tooltipItems[0].label} GHz`,
+                label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(3)}`
+              }
+            }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Frequency (GHz)' },
+              ticks: { maxTicksLimit: 10 }
+            },
+            y: {
+              title: { display: true, text: yAxisLabel },
+              ticks: { maxTicksLimit: 8 }
+            }
+          }
+        }
+      });
+    }
+
+    createLineChart('bpPermChart', curveData.bp.datasets, 'permittivity', 'εr');
+    createLineChart('bpCondChart', curveData.bp.datasets, 'conductivity', 'σ (S/m)');
+    createLineChart('dwPermChart', curveData.dw.datasets, 'permittivity', 'εr');
+    createLineChart('dwCondChart', curveData.dw.datasets, 'conductivity', 'σ (S/m)');
+  </script>
+  {% endif %}
+</body>
+</html>
