@@ -1,33 +1,100 @@
-import { modelStore, DATASET_KEYS, DatasetResult } from '../domain/models.js';
+import { modelStore, DATASET_KEYS } from '../domain/models.js';
+import { supabase } from '../infrastructure/supabase_client.js';
 
 export class ResultsService {
     constructor(storageRepo) {
-        this.storage = storageRepo;
+        this.storage = storageRepo; // Keep for fallback
         this.STORAGE_KEY = 'results_data';
     }
 
     /**
-     * Loads all datasets from storage into the modelStore.
-     * Only overrides if saved data has rows for that key.
+     * Loads all datasets from Supabase into the modelStore.
      */
-    loadAll() {
+    async loadAll() {
+        try {
+            const { data, error } = await supabase
+                .from('results')
+                .select('*')
+                .order('glucose', { ascending: true });
+
+            if (error) {
+                console.error('Supabase load error:', error);
+                // Fallback to localStorage
+                this.loadFromLocalStorage();
+                return;
+            }
+
+            if (data && data.length > 0) {
+                // Group by dataset_key
+                DATASET_KEYS.forEach(key => {
+                    const dataset = modelStore.getDataset(key);
+                    const rows = data.filter(r => r.dataset_key === key);
+                    if (rows.length > 0) {
+                        dataset.rows = rows.map(r => ({
+                            id: r.id,
+                            glucose: r.glucose,
+                            s11_freq: r.s11_freq || 0,
+                            s11_amp: r.s11_amp || 0,
+                            s21_freq: r.s21_freq || 0,
+                            s21_amp: r.s21_amp || 0
+                        }));
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Failed to load from Supabase:', err);
+            this.loadFromLocalStorage();
+        }
+    }
+
+    loadFromLocalStorage() {
         const data = this.storage.load(this.STORAGE_KEY);
         if (data) {
             DATASET_KEYS.forEach(key => {
                 const dataset = modelStore.getDataset(key);
-                // Only apply if there's actual data with rows
                 if (data[key] && Array.isArray(data[key]) && data[key].length > 0) {
                     dataset.rows = data[key];
                 }
-                // If no saved data or empty, keep the default rows from DatasetResult constructor
             });
         }
     }
 
     /**
-     * Saves all datasets from the modelStore to storage.
+     * Saves all datasets to Supabase.
      */
-    saveAll() {
+    async saveAll() {
+        try {
+            // Prepare all rows for upsert
+            const allRows = [];
+            DATASET_KEYS.forEach(key => {
+                const dataset = modelStore.getDataset(key);
+                dataset.rows.forEach(row => {
+                    allRows.push({
+                        id: row.id || undefined,
+                        dataset_key: key,
+                        glucose: row.glucose,
+                        s11_freq: row.s11_freq || 0,
+                        s11_amp: row.s11_amp || 0,
+                        s21_freq: row.s21_freq || 0,
+                        s21_amp: row.s21_amp || 0
+                    });
+                });
+            });
+
+            // Delete existing and insert fresh
+            await supabase.from('results').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+            if (allRows.length > 0) {
+                const { error } = await supabase.from('results').insert(allRows);
+                if (error) {
+                    console.error('Supabase save error:', error);
+                }
+            }
+        } catch (err) {
+            console.error('Failed to save to Supabase:', err);
+        }
+
+        // Also save to localStorage as backup
         const data = {};
         DATASET_KEYS.forEach(key => {
             const dataset = modelStore.getDataset(key);
@@ -37,9 +104,16 @@ export class ResultsService {
     }
 
     /**
-     * Resets all datasets to default rows (0, 72, 216, 330, 500, 600, 1000).
+     * Resets all datasets to default rows.
      */
-    clearAllData() {
+    async clearAllData() {
+        // Delete from Supabase
+        try {
+            await supabase.from('results').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        } catch (err) {
+            console.error('Failed to clear Supabase:', err);
+        }
+
         // Reinitialize all datasets with fresh defaults
         DATASET_KEYS.forEach(key => {
             const dataset = modelStore.getDataset(key);
@@ -49,6 +123,6 @@ export class ResultsService {
                 s21_freq: 0, s21_amp: 0
             }));
         });
-        this.saveAll();
+        await this.saveAll();
     }
 }

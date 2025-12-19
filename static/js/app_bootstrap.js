@@ -5,15 +5,15 @@ import { ResultsService } from './application/results_service.js';
 import { OptimizationView } from './presentation/optimization_view.js';
 
 class App {
-    static init() {
+    static async init() {
         console.log('App initializing...');
 
         try {
             const storageRepo = new StorageRepository();
             const resultsService = new ResultsService(storageRepo);
 
-            // Load persisted data
-            resultsService.loadAll();
+            // Load persisted data from Supabase
+            await resultsService.loadAll();
 
             new TabsController(storageRepo);
             new ResultsView(resultsService);

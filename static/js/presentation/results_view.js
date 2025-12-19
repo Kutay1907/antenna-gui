@@ -251,7 +251,7 @@ export class ResultsView {
     updateRow(index, field, value) {
         const dataset = modelStore.getDataset(this.currentDatasetKey);
         dataset.updateRow(index, field, value);
-        this.resultsService.saveAll(); // Auto-save
+        this.resultsService.saveAll(); // Async, fire-and-forget
         // Re-render metrics and charts on update
         this.renderMetrics(dataset.rows);
         this.chartsView.render(dataset.rows);
