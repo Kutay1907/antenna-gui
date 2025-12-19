@@ -12,6 +12,9 @@ body {
   padding: 30px;
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  position: relative;
+  /* Ensure context */
+  z-index: 1;
 }
 
 .header {
@@ -19,6 +22,9 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+  position: relative;
+  z-index: 10;
+  /* Ensure header controls are above */
 }
 
 .header h1 {
@@ -271,26 +277,36 @@ canvas {
 }
 
 .data-table th {
-  background-color: #fafafa;
+  background-color: #f1f8ff;
   font-weight: 600;
-  color: #2b3a42;
+  color: #1a2a34;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.data-table tr:nth-child(even) {
+  background-color: #f9f9f9;
+}
+
+.data-table tr:hover {
+  background-color: #f0f4f8;
 }
 
 .data-table input {
   width: 100%;
   box-sizing: border-box;
-  padding: 6px;
-  border: 1px solid transparent;
+  padding: 8px;
+  border: 1px solid #eee;
   border-radius: 4px;
   text-align: center;
   background-color: transparent;
-  margin-bottom: 0;
+  transition: all 0.2s;
 }
 
 .data-table input:focus {
   border-color: #1e88e5;
   background-color: #fff;
   outline: none;
+  box-shadow: 0 0 0 2px rgba(30, 136, 229, 0.1);
 }
 
 .action-btn {

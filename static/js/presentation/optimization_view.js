@@ -220,6 +220,7 @@ export class OptimizationView {
                     </div>
                     ${numInput('Ring Count', 'ring_count', p.ring_count)}
                     ${numInput('h', 'h', p.h)}
+                    ${numInput('t (Copper)', 't', p.t)}
                 </div>
             </div>
 
