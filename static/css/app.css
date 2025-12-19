@@ -289,6 +289,16 @@ canvas {
   background-color: #43a047;
 }
 
+.action-btn.secondary {
+  background-color: #ef5350;
+  margin-right: 12px;
+}
+
+.action-btn.secondary:hover {
+  background-color: #e53935;
+}
+
+
 .delete-btn {
   background: none;
   border: none;

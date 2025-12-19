@@ -1,7 +1,8 @@
 import { modelStore, DATASET_KEYS, DATASET_LABELS } from '../domain/models.js';
 
 export class ResultsView {
-    constructor() {
+    constructor(resultsService) {
+        this.resultsService = resultsService;
         this.currentDatasetKey = DATASET_KEYS[0]; // Default to first
         this.subTabsContainer = document.querySelector('.sub-tabs');
         this.tableBody = document.querySelector('#results-table-body');
@@ -49,6 +50,17 @@ export class ResultsView {
                     const idx = parseInt(input.getAttribute('data-index'));
                     const field = input.getAttribute('data-field');
                     this.updateRow(idx, field, input.value);
+                }
+            });
+        }
+
+        // Clear Data
+        const clearBtn = document.getElementById('clear-data-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                if (confirm('Are you sure you want to clear all results data?')) {
+                    this.resultsService.clearAllData();
+                    this.renderTable();
                 }
             });
         }
@@ -101,17 +113,20 @@ export class ResultsView {
     addRow() {
         const dataset = modelStore.getDataset(this.currentDatasetKey);
         dataset.addRow();
+        this.resultsService.saveAll(); // Auto-save
         this.renderTable();
     }
 
     deleteRow(index) {
         const dataset = modelStore.getDataset(this.currentDatasetKey);
         dataset.deleteRow(index);
+        this.resultsService.saveAll(); // Auto-save
         this.renderTable();
     }
 
     updateRow(index, field, value) {
         const dataset = modelStore.getDataset(this.currentDatasetKey);
         dataset.updateRow(index, field, value);
+        this.resultsService.saveAll(); // Auto-save
     }
 }
