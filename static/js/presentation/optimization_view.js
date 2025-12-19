@@ -70,21 +70,52 @@ export class OptimizationView {
     }
 
     showAddDialog() {
-        const name = prompt('Enter name for new parameter set:', 'Config ' + (modelStore.optRuns.length + 1));
-        if (!name) return;
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <h3>New Parameter Set</h3>
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="new-param-name" placeholder="e.g., Felt 1 Ring - Config A" value="Config ${modelStore.optRuns.length + 1}">
+                </div>
+                <div class="form-group">
+                    <label>Link to Dataset</label>
+                    <select id="new-param-dataset">
+                        ${DATASET_KEYS.map(k => `<option value="${k}">${DATASET_LABELS[k]}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button id="modal-cancel" class="secondary-btn">Cancel</button>
+                    <button id="modal-create" class="action-btn">Create</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
 
-        // Show dataset selector
-        let datasetOptions = '';
-        DATASET_KEYS.forEach(key => {
-            datasetOptions += `${key}: ${DATASET_LABELS[key]}\n`;
-        });
-        const datasetKey = prompt('Enter dataset key:\n' + datasetOptions, 'felt_1ring');
-        if (!datasetKey || !DATASET_KEYS.includes(datasetKey)) {
-            alert('Invalid dataset key');
-            return;
-        }
+        // Focus the name input
+        modal.querySelector('#new-param-name').focus();
 
-        this.addRun(name, datasetKey);
+        // Handle buttons
+        modal.querySelector('#modal-cancel').onclick = () => modal.remove();
+        modal.querySelector('#modal-create').onclick = async () => {
+            const name = modal.querySelector('#new-param-name').value.trim();
+            const datasetKey = modal.querySelector('#new-param-dataset').value;
+
+            if (!name) {
+                alert('Please enter a name');
+                return;
+            }
+
+            modal.remove();
+            await this.addRun(name, datasetKey);
+        };
+
+        // Close on overlay click
+        modal.onclick = (e) => {
+            if (e.target === modal) modal.remove();
+        };
     }
 
     async addRun(name, datasetKey) {
