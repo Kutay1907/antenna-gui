@@ -1,118 +1,147 @@
 <!doctype html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
   <title>Dynamic Dielectric Property Calculator</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
+
 <body>
   <div class="container">
     <h1>Dynamic Dielectric Property Calculator</h1>
-    
+
     <nav class="tabs">
-        <button class="tab-button active" data-tab="calculator">Calculator</button>
-        <button class="tab-button" data-tab="results">Results</button>
-        <button class="tab-button" data-tab="optimization">Parameter Optimization</button>
+      <button class="tab-button active" data-tab="calculator">Calculator</button>
+      <button class="tab-button" data-tab="results">Results</button>
+      <button class="tab-button" data-tab="optimization">Parameter Optimization</button>
     </nav>
 
     <!-- Calculator Tab -->
     <div id="calculator-tab" class="tab-content active">
-        {% if errors %}
-          <div class="error">
-            {% for error in errors %}
-              <div>{{ error }}</div>
-            {% endfor %}
+      {% if errors %}
+      <div class="error">
+        {% for error in errors %}
+        <div>{{ error }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <form method="post">
+        <label for="glucose">Glucose concentration (mg/dL)</label>
+        <input type="number" step="any" id="glucose" name="glucose" value="{{ glucose_value }}" required>
+
+        <label for="frequency">Frequency</label>
+        <div class="freq-input-wrapper">
+          <div class="freq-input">
+            <input type="number" step="any" min="0" id="frequency" name="frequency" value="{{ frequency_value }}"
+              required>
+            <select name="frequency_unit">
+              {% for unit in frequency_units %}
+              <option value="{{ unit }}" {% if unit==frequency_unit %}selected{% endif %}>{{ unit }}</option>
+              {% endfor %}
+            </select>
           </div>
-        {% endif %}
-        <form method="post">
-          <label for="glucose">Glucose concentration (mg/dL)</label>
-          <input type="number" step="any" id="glucose" name="glucose" value="{{ glucose_value }}" required>
-    
-          <label for="frequency">Frequency</label>
-          <div class="freq-input-wrapper">
-            <div class="freq-input">
-              <input type="number" step="any" min="0" id="frequency" name="frequency" value="{{ frequency_value }}" required>
-              <select name="frequency_unit">
-                {% for unit in frequency_units %}
-                  <option value="{{ unit }}" {% if unit == frequency_unit %}selected{% endif %}>{{ unit }}</option>
-                {% endfor %}
-              </select>
-            </div>
+        </div>
+
+        <label for="tissue">Tissue</label>
+        <select id="tissue" name="tissue">
+          {% for key, label in tissue_options %}
+          <option value="{{ key }}" {% if key==selected_tissue %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+
+        <label for="mode">Mode</label>
+        <select id="mode" name="mode">
+          {% for key, label in mode_options %}
+          <option value="{{ key }}" {% if key==selected_mode %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+
+        <button type="submit">Compute</button>
+      </form>
+
+      {% if tissue_result %}
+      <div class="result">
+        <strong>{{ tissue_result.title }}</strong>
+        <div>ε<sub>r</sub> = {{ tissue_result.epsilon_real }}</div>
+        <div>ε″ = {{ tissue_result.epsilon_imag }}</div>
+        <div>tan&#948; = {{ tissue_result.loss_tangent }}</div>
+        <div>σ = {{ tissue_result.conductivity }} S/m</div>
+      </div>
+      {% endif %}
+
+      {% if glucose_result %}
+      <div class="result">
+        <strong>Computed at {{ frequency_display }}</strong>
+        <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ glucose_result.bp_eps_r }} | σ = {{
+          glucose_result.bp_sigma }} S/m | tan&#948; = {{ glucose_result.bp_loss }}</div>
+        <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ glucose_result.dw_eps_r }} | σ = {{
+          glucose_result.dw_sigma }} S/m | tan&#948; = {{ glucose_result.dw_loss }}</div>
+      </div>
+      <div class="chart-section">
+        <h2>Blood Plasma (Cole–Cole) Trends</h2>
+        <div class="chart-grid">
+          <div class="chart-card">
+            <h3>Relative Permittivity vs Frequency</h3>
+            <canvas id="bpPermChart"></canvas>
           </div>
-    
-          <label for="tissue">Tissue</label>
-          <select id="tissue" name="tissue">
-            {% for key, label in tissue_options %}
-              <option value="{{ key }}" {% if key == selected_tissue %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-    
-          <label for="mode">Mode</label>
-          <select id="mode" name="mode">
-            {% for key, label in mode_options %}
-              <option value="{{ key }}" {% if key == selected_mode %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
-    
-          <button type="submit">Compute</button>
-        </form>
-    
-        {% if tissue_result %}
-          <div class="result">
-            <strong>{{ tissue_result.title }}</strong>
-            <div>ε<sub>r</sub> = {{ tissue_result.epsilon_real }}</div>
-            <div>ε″ = {{ tissue_result.epsilon_imag }}</div>
-            <div>tan&#948; = {{ tissue_result.loss_tangent }}</div>
-            <div>σ = {{ tissue_result.conductivity }} S/m</div>
+          <div class="chart-card">
+            <h3>Conductivity vs Frequency</h3>
+            <canvas id="bpCondChart"></canvas>
           </div>
-        {% endif %}
-    
-        {% if glucose_result %}
-          <div class="result">
-            <strong>Computed at {{ frequency_display }}</strong>
-            <div><em>Blood Plasma (Cole–Cole)</em>: ε<sub>r</sub> = {{ glucose_result.bp_eps_r }} | σ = {{ glucose_result.bp_sigma }} S/m | tan&#948; = {{ glucose_result.bp_loss }}</div>
-            <div><em>De-ionized Water (Debye)</em>: ε<sub>r</sub> = {{ glucose_result.dw_eps_r }} | σ = {{ glucose_result.dw_sigma }} S/m | tan&#948; = {{ glucose_result.dw_loss }}</div>
+        </div>
+      </div>
+      <div class="chart-section">
+        <h2>De-ionized Water (Debye) Trends</h2>
+        <div class="chart-grid">
+          <div class="chart-card">
+            <h3>Relative Permittivity vs Frequency</h3>
+            <canvas id="dwPermChart"></canvas>
           </div>
-          <div class="chart-section">
-            <h2>Blood Plasma (Cole–Cole) Trends</h2>
-            <div class="chart-grid">
-              <div class="chart-card">
-                <h3>Relative Permittivity vs Frequency</h3>
-                <canvas id="bpPermChart"></canvas>
-              </div>
-              <div class="chart-card">
-                <h3>Conductivity vs Frequency</h3>
-                <canvas id="bpCondChart"></canvas>
-              </div>
-            </div>
+          <div class="chart-card">
+            <h3>Conductivity vs Frequency</h3>
+            <canvas id="dwCondChart"></canvas>
           </div>
-          <div class="chart-section">
-            <h2>De-ionized Water (Debye) Trends</h2>
-            <div class="chart-grid">
-              <div class="chart-card">
-                <h3>Relative Permittivity vs Frequency</h3>
-                <canvas id="dwPermChart"></canvas>
-              </div>
-              <div class="chart-card">
-                <h3>Conductivity vs Frequency</h3>
-                <canvas id="dwCondChart"></canvas>
-              </div>
-            </div>
-          </div>
-        {% endif %}
+        </div>
+      </div>
+      {% endif %}
     </div>
 
     <!-- Results Tab -->
     <div id="results-tab" class="tab-content">
-        <h2>Results</h2>
-        <p>Results content will be implemented in Stage 02.</p>
+      <div class="results-header">
+        <h2 id="selected-dataset-title">Results</h2>
+        <div class="sub-tabs">
+          <!-- Sub-tabs will be injected here -->
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Glucose (mg/dL)</th>
+              <th>S11 Freq (GHz)</th>
+              <th>S11 Amp (dB)</th>
+              <th>S21 Freq (GHz)</th>
+              <th>S21 Amp (dB)</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="results-table-body">
+            <!-- Rows will be injected here -->
+          </tbody>
+        </table>
+        <button id="add-row-btn" class="action-btn">+ Add Row</button>
+      </div>
     </div>
+
 
     <!-- Optimization Tab -->
     <div id="optimization-tab" class="tab-content">
-        <h2>Parameter Optimization</h2>
-        <p>Optimization content will be implemented in Stage 06.</p>
+      <h2>Parameter Optimization</h2>
+      <p>Optimization content will be implemented in Stage 06.</p>
     </div>
 
     <div class="footer">Enter frequency and choose a tissue/mode to compute dielectric properties.</div>
@@ -195,4 +224,5 @@
   </script>
   {% endif %}
 </body>
+
 </html>
