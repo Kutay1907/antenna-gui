@@ -1,4 +1,4 @@
-import { modelStore } from '../domain/models.js';
+import { modelStore, DATASET_KEYS, DATASET_LABELS } from '../domain/models.js';
 import { OptimizationService } from '../application/optimization_service.js';
 
 export class OptimizationView {
@@ -12,33 +12,32 @@ export class OptimizationView {
         this.init();
     }
 
-    init() {
+    async init() {
+        // Load from Supabase first
+        await this.service.loadAll();
+
         this.bindEvents();
-        // Create initial run if empty
-        if (modelStore.optRuns.length === 0) {
-            this.addRun();
-        } else {
+
+        if (modelStore.optRuns.length > 0) {
             this.currentRunId = modelStore.optRuns[0].id;
-            this.render();
         }
+        this.render();
     }
 
     bindEvents() {
         if (this.addRunBtn) {
-            this.addRunBtn.addEventListener('click', () => this.addRun());
+            this.addRunBtn.addEventListener('click', () => this.showAddDialog());
         }
 
         if (this.runsList) {
             this.runsList.addEventListener('click', (e) => {
-                // Select Run
                 const item = e.target.closest('.run-item');
-                if (item) {
+                if (item && !e.target.classList.contains('delete-run-btn')) {
                     this.selectRun(item.getAttribute('data-id'));
                 }
 
-                // Delete Run
                 if (e.target.classList.contains('delete-run-btn')) {
-                    e.stopPropagation(); // Prevent select
+                    e.stopPropagation();
                     const id = e.target.getAttribute('data-id');
                     this.deleteRun(id);
                 }
@@ -46,52 +45,57 @@ export class OptimizationView {
         }
 
         if (this.formContainer) {
-            // Input delegation
             this.formContainer.addEventListener('input', (e) => {
                 const input = e.target;
                 if (input.name === 'rawInput') {
                     this.service.updateRawInput(this.currentRunId, input.value);
+                } else if (input.name === 'run-name') {
+                    const run = modelStore.getOptRun(this.currentRunId);
+                    if (run) run.name = input.value;
                 } else if (input.hasAttribute('name')) {
                     this.updateParameter(input.name, input.value);
                 }
             });
 
-            // Button delegation
             this.formContainer.addEventListener('click', (e) => {
                 if (e.target.id === 'parse-btn') {
                     this.handleParse();
                 } else if (e.target.id === 'clear-input-btn') {
                     this.handleClearInput();
+                } else if (e.target.id === 'save-params-btn') {
+                    this.handleSave();
                 }
             });
         }
     }
 
-    handleParse() {
-        const result = this.service.parseAndSave(this.currentRunId);
-        if (result.success) {
-            this.render(); // Re-render to show table
-        } else {
-            alert('Parsing Error: ' + result.error);
+    showAddDialog() {
+        const name = prompt('Enter name for new parameter set:', 'Config ' + (modelStore.optRuns.length + 1));
+        if (!name) return;
+
+        // Show dataset selector
+        let datasetOptions = '';
+        DATASET_KEYS.forEach(key => {
+            datasetOptions += `${key}: ${DATASET_LABELS[key]}\n`;
+        });
+        const datasetKey = prompt('Enter dataset key:\n' + datasetOptions, 'felt_1ring');
+        if (!datasetKey || !DATASET_KEYS.includes(datasetKey)) {
+            alert('Invalid dataset key');
+            return;
         }
+
+        this.addRun(name, datasetKey);
     }
 
-    handleClearInput() {
-        if (confirm('Clear input data?')) {
-            this.service.clearData(this.currentRunId);
-            this.render();
-        }
-    }
-
-    addRun() {
-        const run = modelStore.addOptRun();
+    async addRun(name, datasetKey) {
+        const run = await this.service.addRun(name, datasetKey);
         this.currentRunId = run.id;
         this.render();
     }
 
-    deleteRun(id) {
-        if (confirm('Delete this run?')) {
-            modelStore.deleteOptRun(id);
+    async deleteRun(id) {
+        if (confirm('Delete this parameter set?')) {
+            await this.service.deleteRun(id);
             if (this.currentRunId === id) {
                 this.currentRunId = modelStore.optRuns.length > 0 ? modelStore.optRuns[0].id : null;
             }
@@ -104,31 +108,35 @@ export class OptimizationView {
         this.render();
     }
 
+    async handleSave() {
+        await this.service.saveRun(this.currentRunId);
+        alert('Parameters saved!');
+    }
+
+    handleParse() {
+        const result = this.service.parseAndSave(this.currentRunId);
+        if (result.success) {
+            this.render();
+        } else {
+            alert('Parsing Error: ' + result.error);
+        }
+    }
+
+    handleClearInput() {
+        if (confirm('Clear input data?')) {
+            this.service.clearData(this.currentRunId);
+            this.render();
+        }
+    }
+
     updateParameter(field, value) {
         const run = modelStore.getOptRun(this.currentRunId);
         if (run) {
-            if (field === 'substrate') {
+            if (field === 'substrate' || field === 'dataset_key') {
                 run.parameters[field] = value;
             } else {
-                // Validation for numeric fields
                 const num = parseFloat(value);
-                if (value === '' || isNaN(num)) {
-                    // Allow temporary empty/invalid state while typing, but don't save garbage if possible
-                    // Or just save as is? Requirement says "Invalid numeric input shows a clear error".
-                    // For now, let's allow it but check validity on "Run" (simulated).
-                    // Actually, let's just ensure it's a number.
-                    run.parameters[field] = 0; // Default or keep old?
-                } else if (num < 0) {
-                    // Check if field allows negative (most geometry doesn't)
-                    // Simple check: most are positive.
-                    // We can revert or flash error.
-                    // For simplicity: save, but UI validation visual cues would be better.
-                    // Let's rely on the input[type=number] validation in render for now, 
-                    // but here we clamp or accept.
-                    run.parameters[field] = num;
-                } else {
-                    run.parameters[field] = num;
-                }
+                run.parameters[field] = isNaN(num) ? 0 : num;
             }
         }
     }
@@ -143,37 +151,34 @@ export class OptimizationView {
 
         let html = '';
 
-        // Sort runs by sensitivity descending
-        const sortedRuns = [...modelStore.optRuns].sort((a, b) => {
-            const sA = a.sensitivity || -Infinity;
-            const sB = b.sensitivity || -Infinity;
-            return sB - sA;
+        // Group by dataset_key
+        const grouped = {};
+        modelStore.optRuns.forEach(run => {
+            const key = run.dataset_key || 'unknown';
+            if (!grouped[key]) grouped[key] = [];
+            grouped[key].push(run);
         });
 
-        sortedRuns.forEach(run => {
-            const active = run.id === this.currentRunId ? 'active' : '';
+        Object.keys(grouped).forEach(datasetKey => {
+            const label = DATASET_LABELS[datasetKey] || datasetKey;
+            html += `<div class="run-group"><div class="run-group-header">${label}</div>`;
 
-            let badge = '';
-            if (run.sensitivity !== null) {
-                // Show Sens and Shift. S = Sens, Sh = Shift
-                badge = `<div class="run-metrics">
-                            <small>Sens: ${run.sensitivity.toFixed(4)}</small>
-                            <small>Shift: ${run.shift.toFixed(4)}</small>
-                         </div>`;
-            } else {
-                badge = `<div class="run-metrics"><small>No Data</small></div>`;
-            }
-
-            html += `
-                <div class="run-item ${active}" data-id="${run.id}">
-                    <div class="run-info">
+            grouped[datasetKey].forEach(run => {
+                const active = run.id === this.currentRunId ? 'active' : '';
+                html += `
+                    <div class="run-item ${active}" data-id="${run.id}">
                         <span class="run-name">${run.name}</span>
-                        ${badge}
+                        <button class="delete-run-btn" data-id="${run.id}">×</button>
                     </div>
-                    <button class="delete-run-btn" data-id="${run.id}">×</button>
-                </div>
-            `;
+                `;
+            });
+            html += `</div>`;
         });
+
+        if (modelStore.optRuns.length === 0) {
+            html = '<p class="no-data">No parameter sets. Click + to add.</p>';
+        }
+
         this.runsList.innerHTML = html;
     }
 
@@ -182,13 +187,12 @@ export class OptimizationView {
 
         const run = modelStore.getOptRun(this.currentRunId);
         if (!run) {
-            this.formContainer.innerHTML = '<p class="no-selection">No run selected.</p>';
+            this.formContainer.innerHTML = '<p class="no-selection">No parameter set selected.</p>';
             return;
         }
 
         const p = run.parameters;
 
-        // Helper to generate input
         const numInput = (lbl, name, val) => `
             <div class="form-group">
                 <label>${lbl}</label>
@@ -196,7 +200,6 @@ export class OptimizationView {
             </div>
         `;
 
-        // Render Data Table rows
         let tableRows = '';
         if (run.parsedData && run.parsedData.length > 0) {
             run.parsedData.forEach(row => {
@@ -211,6 +214,22 @@ export class OptimizationView {
         }
 
         this.formContainer.innerHTML = `
+            <div class="form-section">
+                <h4>Parameter Set Info</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input type="text" name="run-name" value="${run.name}">
+                    </div>
+                    <div class="form-group">
+                        <label>Dataset</label>
+                        <select name="dataset_key">
+                            ${DATASET_KEYS.map(k => `<option value="${k}" ${k === run.dataset_key ? 'selected' : ''}>${DATASET_LABELS[k]}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
             <div class="form-section">
                 <h4>General</h4>
                 <div class="form-row">
@@ -266,9 +285,13 @@ export class OptimizationView {
                     ${numInput('Bthick', 'bthick', p.bthick)}
                 </div>
             </div>
+
+            <div class="form-section">
+                <button id="save-params-btn" class="action-btn">💾 Save Parameters</button>
+            </div>
             
             <div class="form-section">
-                <h4>Input Logic (Freq Amp pairs)</h4>
+                <h4>Input Data (Freq Amp pairs)</h4>
                 <div class="input-parser-container">
                     <div class="input-area">
                         <textarea name="rawInput" placeholder="Paste pairs here (e.g. 2.45 -10)...">${run.rawInput || ''}</textarea>
