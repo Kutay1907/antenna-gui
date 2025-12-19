@@ -64,13 +64,12 @@ export class ResultsService {
      */
     async saveAll() {
         try {
-            // Prepare all rows for upsert
+            // Prepare all rows for insert (without id, let Supabase generate)
             const allRows = [];
             DATASET_KEYS.forEach(key => {
                 const dataset = modelStore.getDataset(key);
                 dataset.rows.forEach(row => {
                     allRows.push({
-                        id: row.id || undefined,
                         dataset_key: key,
                         glucose: row.glucose,
                         s11_freq: row.s11_freq || 0,
@@ -81,17 +80,29 @@ export class ResultsService {
                 });
             });
 
-            // Delete existing and insert fresh
-            await supabase.from('results').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            // Delete all existing rows first
+            const { error: deleteError } = await supabase
+                .from('results')
+                .delete()
+                .gte('glucose', 0); // This matches all rows
 
+            if (deleteError) {
+                console.error('Supabase delete error:', deleteError);
+            }
+
+            // Insert all rows
             if (allRows.length > 0) {
-                const { error } = await supabase.from('results').insert(allRows);
+                const { data, error } = await supabase.from('results').insert(allRows);
                 if (error) {
-                    console.error('Supabase save error:', error);
+                    console.error('Supabase insert error:', error);
+                    alert('Failed to save to database: ' + error.message);
+                } else {
+                    console.log('Saved to Supabase:', allRows.length, 'rows');
                 }
             }
         } catch (err) {
             console.error('Failed to save to Supabase:', err);
+            alert('Failed to save: ' + err.message);
         }
 
         // Also save to localStorage as backup
@@ -109,7 +120,10 @@ export class ResultsService {
     async clearAllData() {
         // Delete from Supabase
         try {
-            await supabase.from('results').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            const { error } = await supabase.from('results').delete().gte('glucose', 0);
+            if (error) {
+                console.error('Failed to clear Supabase:', error);
+            }
         } catch (err) {
             console.error('Failed to clear Supabase:', err);
         }
