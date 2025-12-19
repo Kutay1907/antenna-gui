@@ -358,3 +358,8 @@ canvas {
   font-size: 0.9rem;
   font-style: italic;
 }
+
+/* Charts Section */
+.charts-section {
+  margin-top: 32px;
+}

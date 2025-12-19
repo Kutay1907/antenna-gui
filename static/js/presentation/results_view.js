@@ -1,5 +1,6 @@
 import { modelStore, DATASET_KEYS, DATASET_LABELS } from '../domain/models.js';
 import { MetricsCalculator } from '../domain/metrics.js';
+import { ChartsView } from './charts_view.js';
 
 export class ResultsView {
     constructor(resultsService) {
@@ -9,6 +10,8 @@ export class ResultsView {
         this.tableBody = document.querySelector('#results-table-body');
         this.metricsContainer = document.querySelector('.metrics-container'); // Need to add this to HTML first
         this.selectedDatasetTitle = document.getElementById('selected-dataset-title');
+
+        this.chartsView = new ChartsView();
 
         this.init();
     }
@@ -112,6 +115,7 @@ export class ResultsView {
         });
 
         this.renderMetrics(dataset.rows);
+        this.chartsView.render(dataset.rows);
     }
 
     renderMetrics(rows) {
@@ -176,7 +180,8 @@ export class ResultsView {
         const dataset = modelStore.getDataset(this.currentDatasetKey);
         dataset.updateRow(index, field, value);
         this.resultsService.saveAll(); // Auto-save
-        // Re-render metrics on update
+        // Re-render metrics and charts on update
         this.renderMetrics(dataset.rows);
+        this.chartsView.render(dataset.rows);
     }
 }
