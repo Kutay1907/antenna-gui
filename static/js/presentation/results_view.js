@@ -154,43 +154,26 @@ export class ResultsView {
     renderMetrics(rows) {
         if (!this.metricsContainer) return;
 
-        // Compute Metrics
-        const s11ShiftTotal = MetricsCalculator.calculateShift(rows, 's11_freq', 0, 1000);
-        const s21ShiftTotal = MetricsCalculator.calculateShift(rows, 's21_freq', 0, 1000);
-        const s11ShiftMid = MetricsCalculator.calculateShift(rows, 's11_freq', 72, 600);
+        // Compute Metrics (0-1000 range)
+        const frequencyShift = MetricsCalculator.calculateShift(rows, 's11_freq', 0, 1000);
+        const dbShift = MetricsCalculator.calculateAmplitudeDelta(rows, 's11_amp', 0, 1000);
+        const sensitivity = MetricsCalculator.calculateSensitivity(frequencyShift, 1000); // 1000 - 0
 
-        const s11Sensitivity = MetricsCalculator.calculateSensitivity(s11ShiftTotal, 1000); // 1000 - 0
-
-        const s11AmpDelta = MetricsCalculator.calculateAmplitudeDelta(rows, 's11_amp', 0, 1000);
-        const s21AmpDelta = MetricsCalculator.calculateAmplitudeDelta(rows, 's21_amp', 0, 1000);
-
-        // Render Helper
-        const formatVal = (val, unit, factor = 1) => val !== null ? `${(val * factor).toFixed(4)} ${unit} ` : '<span class="na">N/A</span>';
+        // Render Helper - format to 4 decimal places
+        const formatVal = (val, unit) => val !== null ? `${val.toFixed(4)} ${unit}` : '<span class="na">N/A</span>';
 
         this.metricsContainer.innerHTML = `
-    < div class="metric-card" >
-                <h4>Total S11 Shift (0-1000)</h4>
-                <div class="metric-value">${formatVal(s11ShiftTotal, 'GHz')}</div>
-            </div >
             <div class="metric-card">
-                <h4>Total S21 Shift (0-1000)</h4>
-                <div class="metric-value">${formatVal(s21ShiftTotal, 'GHz')}</div>
+                <h4>dB Shift (0-1000)</h4>
+                <div class="metric-value">${formatVal(dbShift, 'dB')}</div>
             </div>
             <div class="metric-card">
-                <h4>S11 Shift (72-600)</h4>
-                <div class="metric-value">${formatVal(s11ShiftMid, 'GHz')}</div>
+                <h4>Frequency Shift (0-1000)</h4>
+                <div class="metric-value">${formatVal(frequencyShift, 'GHz')}</div>
             </div>
             <div class="metric-card">
-                <h4>S11 Sensitivity (0-1000)</h4>
-                <div class="metric-value">${formatVal(s11Sensitivity, 'MHz/mg/dL')}</div>
-            </div>
-            <div class="metric-card">
-                <h4>S11 Amp Delta</h4>
-                <div class="metric-value">${formatVal(s11AmpDelta, 'dB')}</div>
-            </div>
-            <div class="metric-card">
-                <h4>S21 Amp Delta</h4>
-                <div class="metric-value">${formatVal(s21AmpDelta, 'dB')}</div>
+                <h4>Sensitivity (0-1000)</h4>
+                <div class="metric-value">${formatVal(sensitivity, 'MHz/mg/dL')}</div>
             </div>
 `;
     }
