@@ -1,6 +1,6 @@
 import { modelStore, DATASET_KEYS, DATASET_LABELS } from '../domain/models.js';
 import { MetricsCalculator } from '../domain/metrics.js';
-import { ChartsView } from './charts_view.js';
+
 import { InputParser } from '../domain/parser.js';
 import { Validators } from '../domain/validators.js';
 
@@ -13,7 +13,7 @@ export class ResultsView {
         this.metricsContainer = document.querySelector('.metrics-container'); // Need to add this to HTML first
         this.selectedDatasetTitle = document.getElementById('selected-dataset-title');
 
-        this.chartsView = new ChartsView();
+
 
         this.init();
     }
@@ -36,11 +36,7 @@ export class ResultsView {
             });
         }
 
-        // Add Row
-        const addBtn = document.getElementById('add-row-btn');
-        if (addBtn) {
-            addBtn.addEventListener('click', () => this.addRow());
-        }
+
 
         // Table actions (delegation)
         if (this.tableBody) {
@@ -148,7 +144,7 @@ export class ResultsView {
         });
 
         this.renderMetrics(dataset.rows);
-        this.chartsView.render(dataset.rows);
+
     }
 
     renderMetrics(rows) {
@@ -178,51 +174,7 @@ export class ResultsView {
 `;
     }
 
-    addRow() {
-        const glInput = document.getElementById('new-row-glucose');
-        const frInput = document.getElementById('new-row-freq');
-        const s11Input = document.getElementById('new-row-s11');
-        const s21Input = document.getElementById('new-row-s21');
 
-        // Validation
-        const glVal = Validators.validateGlucose(glInput.value);
-        if (!glVal.valid) {
-            alert(`Invalid Glucose: ${glVal.message} `);
-            return;
-        }
-
-        const frVal = Validators.validateFrequency(frInput.value);
-        if (!frVal.valid) {
-            alert(`Invalid Frequency: ${frVal.message} `);
-            return;
-        }
-
-        const s11Val = Validators.validateAmplitude(s11Input.value);
-        const s21Val = Validators.validateAmplitude(s21Input.value);
-
-        if (!s11Val.valid || !s21Val.valid) {
-            alert('S-Parameters must be valid numbers');
-            return;
-        }
-
-        const dataset = modelStore.getDataset(this.currentDatasetKey);
-        dataset.addRow({
-            glucose: parseFloat(glInput.value),
-            freq: parseFloat(frInput.value),
-            s11: parseFloat(s11Input.value),
-            s21: parseFloat(s21Input.value)
-        });
-
-        this.resultsService.saveAll(); // Auto-save
-        this.renderTable();
-
-        // Clear inputs
-        glInput.value = '';
-        frInput.value = '';
-        s11Input.value = '';
-        s21Input.value = '';
-        glInput.focus();
-    }
 
     deleteRow(index) {
         const dataset = modelStore.getDataset(this.currentDatasetKey);
@@ -237,7 +189,7 @@ export class ResultsView {
         this.resultsService.saveAll(); // Async, fire-and-forget
         // Re-render metrics and charts on update
         this.renderMetrics(dataset.rows);
-        this.chartsView.render(dataset.rows);
+
     }
 
     renderBulkUI() {
