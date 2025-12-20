@@ -421,7 +421,10 @@ export class OptimizationView {
         const s21Sensitivity = MetricsCalculator.calculateSensitivity(s21FreqShift, 1000);
 
         // Render Helper - format to 4 decimal places
-        const formatVal = (val, unit) => val !== null ? `${val.toFixed(4)} ${unit}` : '<span class="na">N/A</span>';
+        // Convert GHz to MHz (*1000) for frequency shift, and MHz/mg/dL to kHz/mg/dL (*1000) for sensitivity
+        const formatFreq = (val) => val !== null ? `${(val * 1000).toFixed(4)} MHz` : '<span class="na">N/A</span>';
+        const formatSens = (val) => val !== null ? `${(val * 1000).toFixed(4)} kHz/mg/dL` : '<span class="na">N/A</span>';
+        const formatDb = (val) => val !== null ? `${val.toFixed(4)} dB` : '<span class="na">N/A</span>';
 
         return `
             <div class="metrics-container">
@@ -430,15 +433,15 @@ export class OptimizationView {
                     <div class="metrics-row">
                         <div class="metric-card">
                             <h5>dB Shift (0-1000)</h5>
-                            <div class="metric-value">${formatVal(s11DbShift, 'dB')}</div>
+                            <div class="metric-value">${formatDb(s11DbShift)}</div>
                         </div>
                         <div class="metric-card">
                             <h5>Frequency Shift (0-1000)</h5>
-                            <div class="metric-value">${formatVal(s11FreqShift, 'GHz')}</div>
+                            <div class="metric-value">${formatFreq(s11FreqShift)}</div>
                         </div>
                         <div class="metric-card">
                             <h5>Sensitivity (0-1000)</h5>
-                            <div class="metric-value">${formatVal(s11Sensitivity, 'MHz/mg/dL')}</div>
+                            <div class="metric-value">${formatSens(s11Sensitivity)}</div>
                         </div>
                     </div>
                 </div>
@@ -447,15 +450,15 @@ export class OptimizationView {
                     <div class="metrics-row">
                         <div class="metric-card">
                             <h5>dB Shift (0-1000)</h5>
-                            <div class="metric-value">${formatVal(s21DbShift, 'dB')}</div>
+                            <div class="metric-value">${formatDb(s21DbShift)}</div>
                         </div>
                         <div class="metric-card">
                             <h5>Frequency Shift (0-1000)</h5>
-                            <div class="metric-value">${formatVal(s21FreqShift, 'GHz')}</div>
+                            <div class="metric-value">${formatFreq(s21FreqShift)}</div>
                         </div>
                         <div class="metric-card">
                             <h5>Sensitivity (0-1000)</h5>
-                            <div class="metric-value">${formatVal(s21Sensitivity, 'MHz/mg/dL')}</div>
+                            <div class="metric-value">${formatSens(s21Sensitivity)}</div>
                         </div>
                     </div>
                 </div>
