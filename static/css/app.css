@@ -396,6 +396,30 @@ canvas {
   font-style: italic;
 }
 
+.metrics-group {
+  margin-bottom: 16px;
+}
+
+.metrics-group-title {
+  font-size: 0.95rem;
+  color: #1565c0;
+  margin: 0 0 8px 0;
+  font-weight: 600;
+}
+
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.metric-card h5 {
+  margin: 0 0 6px 0;
+  font-size: 0.85rem;
+  color: #607d8b;
+  font-weight: 600;
+}
+
 /* Charts Section */
 .charts-section {
   margin-top: 32px;
