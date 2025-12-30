@@ -162,6 +162,16 @@ export class ResultsView {
         const s21DbShift = MetricsCalculator.calculateAmplitudeDelta(rows, 's21_amp', 0, 1000);
         const s21Sensitivity = MetricsCalculator.calculateSensitivity(s21FreqShift, 1000);
 
+        // Compute S11 Metrics (72-600 range)
+        const s11FreqShift72 = MetricsCalculator.calculateShift(rows, 's11_freq', 72, 600);
+        const s11DbShift72 = MetricsCalculator.calculateAmplitudeDelta(rows, 's11_amp', 72, 600);
+        const s11Sensitivity72 = MetricsCalculator.calculateSensitivity(s11FreqShift72, 600 - 72);
+
+        // Compute S21 Metrics (72-600 range)
+        const s21FreqShift72 = MetricsCalculator.calculateShift(rows, 's21_freq', 72, 600);
+        const s21DbShift72 = MetricsCalculator.calculateAmplitudeDelta(rows, 's21_amp', 72, 600);
+        const s21Sensitivity72 = MetricsCalculator.calculateSensitivity(s21FreqShift72, 600 - 72);
+
         // Render Helper - format to 4 decimal places
         // Convert GHz to MHz (*1000) for frequency shift, and MHz/mg/dL to kHz/mg/dL (*1000) for sensitivity
         const formatFreq = (val) => val !== null ? `${(val * 1000).toFixed(4)} MHz` : '<span class="na">N/A</span>';
@@ -185,6 +195,20 @@ export class ResultsView {
                         <div class="metric-value">${formatSens(s11Sensitivity)}</div>
                     </div>
                 </div>
+                <div class="metrics-row">
+                    <div class="metric-card">
+                        <h5>dB Shift (72-600)</h5>
+                        <div class="metric-value">${formatDb(s11DbShift72)}</div>
+                    </div>
+                    <div class="metric-card">
+                        <h5>Frequency Shift (72-600)</h5>
+                        <div class="metric-value">${formatFreq(s11FreqShift72)}</div>
+                    </div>
+                    <div class="metric-card">
+                        <h5>Sensitivity (72-600)</h5>
+                        <div class="metric-value">${formatSens(s11Sensitivity72)}</div>
+                    </div>
+                </div>
             </div>
             <div class="metrics-group">
                 <h4 class="metrics-group-title">S21 Metrics</h4>
@@ -200,6 +224,20 @@ export class ResultsView {
                     <div class="metric-card">
                         <h5>Sensitivity (0-1000)</h5>
                         <div class="metric-value">${formatSens(s21Sensitivity)}</div>
+                    </div>
+                </div>
+                <div class="metrics-row">
+                    <div class="metric-card">
+                        <h5>dB Shift (72-600)</h5>
+                        <div class="metric-value">${formatDb(s21DbShift72)}</div>
+                    </div>
+                    <div class="metric-card">
+                        <h5>Frequency Shift (72-600)</h5>
+                        <div class="metric-value">${formatFreq(s21FreqShift72)}</div>
+                    </div>
+                    <div class="metric-card">
+                        <h5>Sensitivity (72-600)</h5>
+                        <div class="metric-value">${formatSens(s21Sensitivity72)}</div>
                     </div>
                 </div>
             </div>
